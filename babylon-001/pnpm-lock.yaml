@@ -167,11 +167,11 @@ importers:
   .:
     dependencies:
       '@babylonjs/core':
-        specifier: 9.33.2
-        version: 9.33.2
+        specifier: 9.33.1
+        version: 9.33.1
       '@babylonjs/materials':
-        specifier: 9.33.2
-        version: 9.33.2(@babylonjs/core@9.33.2)
+        specifier: 9.33.1
+        version: 9.33.1(@babylonjs/core@9.33.1)
     devDependencies:
       node:
         specifier: runtime:26.13.0
@@ -185,11 +185,11 @@ importers:
 
 packages:
 
-  '@babylonjs/core@9.33.2':
-    resolution: {integrity: sha512-dkDoNzYKi1Cqasyg4S4JKIFSGnlX/NQRDlxOnLxJTpGLALoYcF5PAA2PgzIU9ooIRlRN9QjalK4o5v4ZMLUZYQ==}
+  '@babylonjs/core@9.33.1':
+    resolution: {integrity: sha512-NoIfREw4QeoXzRPpXnbUpmxxPIjuRi9iS4xFDbPgXHiLwCeHSI13DJHF8YB2gKHp6rA6T5R7BAevPvWHklvXWQ==}
 
-  '@babylonjs/materials@9.33.2':
-    resolution: {integrity: sha512-vGTYT5W8A+QG6hiHQwAfP8zQXvpVvRCk12mZyvA+5FQfNQrVUmdzVYlFiCRdo3R9QnUxlfVg3imwp9srwT80nQ==}
+  '@babylonjs/materials@9.33.1':
+    resolution: {integrity: sha512-DCGzxuEByyZZg4LBM3mQ36vT3ryf6cRnP6/1dpjpZiT/6+HsTjPNH61SDgsoJNZPsBIJ3ZmQ8smVTQTNfDpxfw==}
     peerDependencies:
       '@babylonjs/core': ^9.0.0
 
@@ -718,11 +718,11 @@ packages:
 
 snapshots:
 
-  '@babylonjs/core@9.33.2': {}
+  '@babylonjs/core@9.33.1': {}
 
-  '@babylonjs/materials@9.33.2(@babylonjs/core@9.33.2)':
+  '@babylonjs/materials@9.33.1(@babylonjs/core@9.33.1)':
     dependencies:
-      '@babylonjs/core': 9.33.2
+      '@babylonjs/core': 9.33.1
 
   '@oxc-project/types@0.156.0': {}
 

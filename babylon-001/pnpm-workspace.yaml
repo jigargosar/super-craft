@@ -1,3 +1,0 @@
-minimumReleaseAgeExclude:
-  - '@babylonjs/core@9.33.2'
-  - '@babylonjs/materials@9.33.2'
