@@ -26,7 +26,8 @@ const PARAMS = {
   sun: { polarDeg: 50, azimuthDeg: 30, color: '#ffffff', intensity: 2, shadowMapSize: 2048 },
   hemi: { sky: '#bfd8ff', ground: '#6b5a3a', intensity: 0.8 },
   ambient: { color: '#ffffff', intensity: 0.2 },
-  sky: { size: 1000, turbidity: 2, rayleigh: 1, mieCoefficient: 0.005, mieDirectionalG: 0.8 },
+  // luminance: babylon-only (its sky has built-in tone mapping; 0.6 matches three's ACES look)
+  sky: { size: 1000, turbidity: 2, rayleigh: 1, mieCoefficient: 0.005, mieDirectionalG: 0.8, luminance: 0.6 },
   floor: { size: 64, color: '#5b8c3a', roughness: 1, metalness: 0 },
   cube: { size: 1, color: '#8b5a2b', roughness: 1, metalness: 0 },
 } as const
@@ -65,6 +66,7 @@ skyMat.turbidity = PARAMS.sky.turbidity
 skyMat.rayleigh = PARAMS.sky.rayleigh
 skyMat.mieCoefficient = PARAMS.sky.mieCoefficient
 skyMat.mieDirectionalG = PARAMS.sky.mieDirectionalG
+skyMat.luminance = PARAMS.sky.luminance
 skyMat.useSunPosition = true
 skyMat.sunPosition = sunDir.scale(100)
 const skybox = CreateBox('sky', { size: PARAMS.sky.size }, scene)
