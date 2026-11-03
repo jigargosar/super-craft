@@ -1,3 +1,5 @@
+> Everything known is documented in `project-notes-001.md`, but the information and the processes are messed up. Before doing anything, discuss with the user and decide what needs to be done for each part.
+
 # Super Craft: session rules
 
 ## Code word
