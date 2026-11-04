@@ -779,13 +779,14 @@ engine.runRenderLoop(() => {
       PARAMS.camera.moveSpeed
     if (onGround && keys.has('Space')) vy = W.jumpSpeed
     if (riseTo === null) vy -= W.gravity * dt
+    const wasOnGround = onGround // go-to-top only from the ground, so jumps are never interrupted
     const { blocked } = moveCollide([dx * k, vy * dt, dz * k])
     onGround = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
     // Go-to-top: bumped into any block → stand on top of the tallest column touching the side you hit
     // (ground, trunk or leaves), then keep the step you tried to take. Checked per blocked axis, across the
     // body's width, so diagonal walking into a wall finds the right column.
-    if (blocked[0] || blocked[2]) {
+    if (wasOnGround && (blocked[0] || blocked[2])) {
       const p = camera.position
       const g = K.size / 2 // world → grid offset on x/z
       const cols: [number, number][] = []
