@@ -36,7 +36,17 @@ const PARAMS = {
     wheelStep: 1.5, // blocks moved along the view direction per mouse-wheel notch (zoom)
     eyeHeight: 1.7, // R reset: stand on the ground nearest the chunk center (inside the forest)
     clearView: 6, // R reset: blocks of open air required ahead at eye level, so you don't face a leaf wall
-    moveSpeed: 8, // blocks per second (WASD, Space up, Shift down)
+    moveSpeed: 8, // fly mode: blocks per second (WASD, Space up, Shift down)
+  },
+  // walk: player physics (bab-only for now). Body = box radius×2 wide, `height` tall; eyes at camera.eyeHeight.
+  // Jump apex = jumpSpeed² / (2 × gravity) ≈ 1.45 blocks, enough to climb one block.
+  walk: {
+    speed: 5,
+    gravity: 28,
+    jumpSpeed: 9,
+    height: 1.8,
+    radius: 0.3,
+    fallResetY: -20,
   },
   sun: {
     polarDeg: 50,
@@ -530,23 +540,93 @@ const centerEye = () => {
 }
 // Mouse wheel = zoom: dolly along the view direction (identical in both apps). Returns blocks to move.
 const wheelDistance = (e: WheelEvent) => -Math.sign(e.deltaY) * C.wheelStep
-// R = reset pose (↔ three position.set + lookAt)
+// --- Walk mode (bab-only for now): gravity, jump, AABB-vs-voxel collision. F toggles walk/fly. ---
+// Own code instead of Babylon collisions: thin instances have no per-block colliders, and the grid lookup
+// is a few lines. Each axis moves separately; if the body then overlaps a solid block, that axis is undone.
+const W = PARAMS.walk
+let mode: 'walk' | 'fly' = 'fly' // start in fly at the overview pose; R drops you into walk mode
+let vy = 0 // vertical speed (walk mode), blocks/s
+let onGround = false
+// World coords → grid: block (gx, gy, gz) spans world [gx - size/2, +1) × [gy, +1) × [gz - size/2, +1).
+const solidAt = (wx: number, wy: number, wz: number) => {
+  const [gx, gy, gz] = [
+    Math.floor(wx + K.size / 2),
+    Math.floor(wy),
+    Math.floor(wz + K.size / 2),
+  ]
+  return gy < 0 ? inside(gx, 0, gz) : get(gx, gy, gz) !== 0 // below y=0 solid only under the chunk
+}
+// Does the body (feet at camera.y - eyeHeight) overlap any solid block?
+const bodyHits = (p: Vector3) => {
+  const e = 1e-3 // shrink so touching a face isn't counted as overlap
+  const feet = p.y - C.eyeHeight
+  for (
+    let x = Math.floor(p.x - W.radius + e);
+    x <= Math.floor(p.x + W.radius - e);
+    x++
+  )
+    for (
+      let y = Math.floor(feet + e);
+      y <= Math.floor(feet + W.height - e);
+      y++
+    )
+      for (
+        let z = Math.floor(p.z - W.radius + e);
+        z <= Math.floor(p.z + W.radius - e);
+        z++
+      )
+        if (solidAt(x + 0.5, y + 0.5, z + 0.5)) return true
+  return false
+}
+// Move the camera by d with collision, in sub-steps ≤ 0.4 blocks so fast moves can't tunnel.
+// Returns which axes were blocked.
+const moveCollide = (d: readonly number[]) => {
+  const blocked = [false, false, false]
+  const steps = Math.ceil(Math.max(...d.map(Math.abs)) / 0.4) || 1
+  const p = camera.position
+  for (let s = 0; s < steps; s++)
+    for (const a of [0, 1, 2] as const) {
+      const key = (['x', 'y', 'z'] as const)[a]
+      const before = p[key]
+      p[key] += d[a] / steps
+      if (bodyHits(p)) {
+        p[key] = before
+        blocked[a] = true
+      }
+    }
+  return blocked
+}
+const hud = document.createElement('div') // mode + key help under the app label
+hud.style.cssText =
+  'position:fixed;top:36px;left:8px;padding:2px 8px;background:#0008;color:#fff;font:12px system-ui,sans-serif;border-radius:4px;pointer-events:none'
+document.body.append(hud)
+const setMode = (m: typeof mode) => {
+  mode = m
+  vy = 0
+  hud.textContent = `${m} · F walk/fly · R reset · wheel zoom · WASD Space${m === 'fly' ? ' Shift' : ''}`
+}
+setMode(mode)
+// R = reset pose on the forest floor, in walk mode (↔ three position.set + lookAt)
 const resetPose = () => {
   const [x, y, z, dx, dz] = centerEye()
   camera.position = new Vector3(x, y, z)
   camera.setTarget(new Vector3(x + dx, y, z + dz))
+  setMode('walk')
 }
-// ↔ three: same wheel listener, direction from getWorldDirection
-addEventListener('wheel', (e) =>
-  camera.position.addInPlace(
-    camera
-      .getTarget()
-      .subtract(camera.position)
-      .normalize()
-      .scale(wheelDistance(e)),
-  ),
-)
-addEventListener('keydown', (e) => e.code === 'KeyR' && resetPose())
+// Wheel = zoom (dolly along the view direction); collides in walk mode. ↔ three getWorldDirection
+addEventListener('wheel', (e) => {
+  const d = camera
+    .getTarget()
+    .subtract(camera.position)
+    .normalize()
+    .scale(wheelDistance(e))
+  if (mode === 'walk') moveCollide([d.x, d.y, d.z])
+  else camera.position.addInPlace(d)
+})
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyR') resetPose()
+  if (e.code === 'KeyF') setMode(mode === 'walk' ? 'fly' : 'walk')
+})
 const axis = (pos: string, neg: string) =>
   (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0)
 const moveDelta = (dt: number, fwd: { x: number; z: number }) => {
@@ -569,7 +649,21 @@ const frameDt = () => {
 // --- Resize + loop ---
 window.addEventListener('resize', () => engine.resize())
 engine.runRenderLoop(() => {
-  const d = moveDelta(frameDt(), camera.getTarget().subtract(camera.position))
-  if (engine.isPointerLock) camera.position.addInPlaceFromFloats(...d)
+  const dt = frameDt()
+  const fwd = camera.getTarget().subtract(camera.position)
+  if (mode === 'fly') {
+    if (engine.isPointerLock)
+      camera.position.addInPlaceFromFloats(...moveDelta(dt, fwd))
+  } else {
+    // Walk: horizontal from WASD at walk speed (only while locked), vertical from gravity/jump.
+    const [dx, , dz] = engine.isPointerLock ? moveDelta(dt, fwd) : [0, 0, 0]
+    const k = W.speed / PARAMS.camera.moveSpeed
+    if (onGround && engine.isPointerLock && keys.has('Space')) vy = W.jumpSpeed
+    vy -= W.gravity * dt
+    const blocked = moveCollide([dx * k, vy * dt, dz * k])
+    onGround = blocked[1] && vy < 0
+    if (blocked[1]) vy = 0
+    if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
+  }
   scene.render()
 })
