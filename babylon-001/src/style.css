@@ -1,2 +1,23 @@
-html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
-#app { width: 100vw; height: 100vh; display: block; }
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+#app {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+/* crosshair at screen center (pointer lock) */
+body::after {
+  content: '+';
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font: 20px monospace;
+  pointer-events: none;
+}
