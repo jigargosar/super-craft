@@ -54,11 +54,36 @@ const PARAMS = {
   blocks: {
     roughness: 1,
     metalness: 0,
-    colors: { grass: '#5b8c3a', dirt: '#8b5a2b', stone: '#7f7f7f' },
   },
-  // texture: pixel-art block textures. size = pixels per block edge (smaller = bigger pixels).
-  // Each pixel = block color * one of `shades` (picked by seeded random) for distinct, crisp tones.
-  texture: { size: 8, seed: 'tex-001', shades: [0.78, 0.9, 1, 1.12] },
+  // texture: pixel-art tiles. Each tile = base fill, then each pixel has `chance` to become a
+  // random speckle color. grassSide = dirt tile with a `grassRows`-tall grass strip on top.
+  texture: {
+    size: 16,
+    seed: 'tex-001',
+    grassTop: {
+      base: '#5c9e49',
+      speckles: ['#4f8a3d', '#6bb057', '#457a34'],
+      chance: 0.35,
+    },
+    dirt: {
+      base: '#6b4a2c',
+      speckles: ['#5c3f25', '#7c5636', '#4f3620'],
+      chance: 0.35,
+    },
+    stone: {
+      base: '#8a8a8a',
+      speckles: ['#7a7a7a', '#969696', '#6f6f6f'],
+      chance: 0.35,
+    },
+    grassSide: {
+      base: '#7a5636',
+      speckle: '#6b4a2c',
+      grass: '#4f8a3d',
+      grassSpeckle: '#5c9e49',
+      grassRows: 4,
+      chance: 0.3,
+    },
+  },
 } as const
 
 // --- Renderer (↔ babylon Engine + imageProcessingConfiguration ACES) ---
@@ -135,7 +160,7 @@ scene.add(sun)
 
 // --- Chunk generation (plains). Identical code in both apps; only rendering differs. ---
 // Heightmap from seeded 2D simplex noise. Only blocks touching air are kept (hidden ones skipped).
-type BlockType = keyof typeof PARAMS.blocks.colors
+type BlockType = 'grass' | 'dirt' | 'stone'
 const K = PARAMS.chunk
 const noise2D = createNoise2D(seedrandom(K.seed))
 const heights = Array.from({ length: K.size }, (_, x) =>
@@ -177,39 +202,80 @@ for (let x = 0; x < K.size; x++)
       blocks[type].push([x - K.size / 2 + 0.5, y + 0.5, z - K.size / 2 + 0.5])
     }
 
-// --- Pixel textures (identical in both apps): size x size canvas per block type,
-//     each pixel = block color times a seeded pick from PARAMS.texture.shades. Nearest filtering. ---
-const makeTextureCanvas = (type: BlockType) => {
-  const T = PARAMS.texture
+// --- Pixel textures (identical logic in both apps; one seeded RNG, tiles drawn in a fixed order) ---
+const T = PARAMS.texture
+const rng = seedrandom(T.seed)
+// Fill a size x size canvas with `base`, then speckle pixels: speckleAt(y) picks the color per row.
+const drawTile = (
+  base: (y: number) => string,
+  chance: number,
+  speckleAt: (y: number) => string,
+) => {
   const c = document.createElement('canvas')
   c.width = c.height = T.size
   const g = c.getContext('2d')!
-  const rng = seedrandom(`${T.seed}-${type}`)
-  const hex = PARAMS.blocks.colors[type]
-  const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
-  for (let y = 0; y < T.size; y++)
-    for (let x = 0; x < T.size; x++) {
-      const k = T.shades[Math.floor(rng() * T.shades.length)]
-      g.fillStyle = `rgb(${rgb.map((v) => Math.min(255, v * k)).join(',')})`
-      g.fillRect(x, y, 1, 1)
-    }
+  for (let y = 0; y < T.size; y++) {
+    g.fillStyle = base(y)
+    g.fillRect(0, y, T.size, 1)
+  }
+  for (let x = 0; x < T.size; x++)
+    for (let y = 0; y < T.size; y++)
+      if (rng() < chance) {
+        g.fillStyle = speckleAt(y)
+        g.fillRect(x, y, 1, 1)
+      }
   return c
 }
-// CanvasTexture ↔ babylon DynamicTexture. Nearest mag filter = crisp pixels.
-const makeTexture = (type: BlockType) => {
-  const t = new THREE.CanvasTexture(makeTextureCanvas(type))
-  t.colorSpace = THREE.SRGBColorSpace
-  t.magFilter = THREE.NearestFilter
-  t.minFilter = THREE.NearestMipmapLinearFilter // ↔ babylon NEAREST_SAMPLINGMODE
-  return t
+const pick = (list: readonly string[]) => () =>
+  list[Math.floor(rng() * list.length)]
+const plain = (t: {
+  base: string
+  speckles: readonly string[]
+  chance: number
+}) => drawTile(() => t.base, t.chance, pick(t.speckles))
+const GS = T.grassSide
+const tiles = {
+  grassTop: plain(T.grassTop),
+  dirt: plain(T.dirt),
+  stone: plain(T.stone),
+  grassSide: drawTile(
+    (y) => (y < GS.grassRows ? GS.grass : GS.base),
+    GS.chance,
+    (y) => (y < GS.grassRows ? GS.grassSpeckle : GS.speckle),
+  ),
 }
-// --- Materials (MeshStandardMaterial ↔ PBRMaterial): texture carries the color. ---
-const pbr = (type: BlockType) =>
-  new THREE.MeshStandardMaterial({
-    map: makeTexture(type),
+
+// --- Materials (MeshStandardMaterial ↔ PBRMaterial): one per tile; texture carries the color.
+//     CanvasTexture ↔ babylon DynamicTexture; nearest filtering = crisp pixels. ---
+const material = (canvas: HTMLCanvasElement) => {
+  const t = new THREE.CanvasTexture(canvas)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.magFilter = t.minFilter = THREE.NearestFilter
+  return new THREE.MeshStandardMaterial({
+    map: t,
     roughness: PARAMS.blocks.roughness,
     metalness: PARAMS.blocks.metalness,
   })
+}
+const mat = {
+  grassTop: material(tiles.grassTop),
+  grassSide: material(tiles.grassSide),
+  dirt: material(tiles.dirt),
+  stone: material(tiles.stone),
+}
+// BoxGeometry face order: +x, -x, +y (top), -y (bottom), +z, -z
+const faces: Record<BlockType, THREE.Material[]> = {
+  grass: [
+    mat.grassSide,
+    mat.grassSide,
+    mat.grassTop,
+    mat.dirt,
+    mat.grassSide,
+    mat.grassSide,
+  ],
+  dirt: Array(6).fill(mat.dirt),
+  stone: Array(6).fill(mat.stone),
+}
 
 // --- Chunk rendering: one InstancedMesh per block type (↔ babylon thin instances) ---
 const box = new THREE.BoxGeometry(1, 1, 1)
@@ -218,7 +284,7 @@ for (const [type, list] of Object.entries(blocks) as [
   BlockType,
   [number, number, number][],
 ][]) {
-  const mesh = new THREE.InstancedMesh(box, pbr(type), list.length)
+  const mesh = new THREE.InstancedMesh(box, faces[type], list.length)
   list.forEach((p, i) => mesh.setMatrixAt(i, m4.makeTranslation(...p)))
   mesh.castShadow = mesh.receiveShadow = true
   scene.add(mesh)
