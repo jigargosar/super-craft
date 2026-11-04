@@ -21,6 +21,8 @@ A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `b
 
 ## Next (remove each line when done)
 
+last dot is the task we work on.
+
 - [ ] Clouds for bab: try `CloudProceduralTexture` (tre's sky already has clouds).
 - [ ] Parity check tre vs bab with stamped screenshots; republish both preview artifacts.
 - [ ] Spike: Babylon atmosphere addon for an HDR sky.
