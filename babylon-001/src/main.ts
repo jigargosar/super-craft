@@ -778,16 +778,33 @@ engine.runRenderLoop(() => {
     const { blocked } = moveCollide([dx * k, vy * dt, dz * k])
     onGround = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
-    // Go-to-top: bumped into any block → jump straight onto the top of the column you walked into
-    // (its highest block: ground, trunk or leaves), then keep the step you tried to take.
+    // Go-to-top: bumped into any block → stand on top of the tallest column touching the side you hit
+    // (ground, trunk or leaves), then keep the step you tried to take. Checked per blocked axis, across the
+    // body's width, so diagonal walking into a wall finds the right column.
     if (blocked[0] || blocked[2]) {
       const p = camera.position
-      const len = Math.hypot(dx, dz) || 1
-      const ahead = W.radius + 0.5 // reach into the blocking column
-      const gx = Math.floor(p.x + (dx / len) * ahead + K.size / 2)
-      const gz = Math.floor(p.z + (dz / len) * ahead + K.size / 2)
-      let top = K.maxHeight - 1
-      while (top >= 0 && get(gx, top, gz) === 0) top--
+      const g = K.size / 2 // world → grid offset on x/z
+      const cols: [number, number][] = []
+      const span = (c: number) => [
+        Math.floor(c - W.radius + g),
+        Math.floor(c + W.radius + g),
+      ]
+      if (blocked[0]) {
+        const gx = Math.floor(p.x + Math.sign(dx) * (W.radius + 0.01) + g)
+        for (let gz = span(p.z)[0]; gz <= span(p.z)[1]; gz++)
+          cols.push([gx, gz])
+      }
+      if (blocked[2]) {
+        const gz = Math.floor(p.z + Math.sign(dz) * (W.radius + 0.01) + g)
+        for (let gx = span(p.x)[0]; gx <= span(p.x)[1]; gx++)
+          cols.push([gx, gz])
+      }
+      let top = -1
+      for (const [gx, gz] of cols) {
+        let y = K.maxHeight - 1
+        while (y >= 0 && get(gx, y, gz) === 0) y--
+        top = Math.max(top, y)
+      }
       p.y = Math.max(p.y, top + 1 + C.eyeHeight)
       vy = 0
       moveCollide([dx * k, 0, dz * k])
