@@ -57,6 +57,7 @@ const PARAMS = {
     height: 1.8,
     radius: 0.3,
     fallResetY: -20,
+    climbNudge: 0.35, // go-to-top: blocks moved onto the top once the body clears the edge
     riseSpeed: 10, // go-to-top: blocks per second while rising onto a block you walked into
   },
   sun: {
@@ -576,7 +577,7 @@ const W = PARAMS.walk
 let mode: 'walk' | 'fly' = 'fly' // start in fly at the overview pose; R drops you into walk mode
 let vy = 0 // vertical speed (walk mode), blocks/s
 let onGround = false
-let climbing = false // go-to-top: rising while pushing into a block
+let climbDir: [number, number] | null = null // go-to-top: push direction while a climb is running
 let boost = 1 // speed multiplier from +/- keys
 let look = 1 // turn-speed multiplier from [ / ] keys (mouse + arrows)
 const applyLook = () => (camera.angularSensibility = 1 / (C.lookSpeed * look))
@@ -651,7 +652,7 @@ document.body.append(hud)
 const setMode = (m: typeof mode) => {
   mode = m
   vy = 0
-  climbing = false
+  climbDir = null
   showHud()
 }
 const showHud = () =>
@@ -769,7 +770,7 @@ engine.runRenderLoop(() => {
   // HUD prompts to click while the mouse is free; all controls run only while captured (pointer lock).
   const locked = engine.isPointerLock || freeMouse
   const c = camera.position
-  pos.textContent = `x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbing ? '  climbing' : ''}`
+  pos.textContent = `x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`
   hud.style.background = locked ? '#0008' : '#b00c'
   if (!locked) {
     hud.textContent = 'Click the view to capture the mouse (Esc releases it)'
@@ -794,18 +795,34 @@ engine.runRenderLoop(() => {
       (W.speed * (keys.has('ShiftLeft') ? W.sprint : 1)) /
       PARAMS.camera.moveSpeed
     if (onGround && keys.has('Space')) vy = W.jumpSpeed
-    if (!climbing) vy -= W.gravity * dt
+    if (!climbDir) vy -= W.gravity * dt
     const wasOnGround = onGround
     const { blocked, wall } = moveCollide([dx * k, vy * dt, dz * k])
     onGround = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
-    // Go-to-top: pushing into a block (started on the ground) → rise immediately, every frame you're still
-    // blocked. No target height to compute: the first frame the forward move succeeds, you're over the
-    // edge and land on top.
-    climbing = !!wall && (wasOnGround || climbing)
-    if (climbing) {
-      camera.position.y += W.riseSpeed * dt
+    // Go-to-top: a push into a block from the ground starts a climb that FINISHES on its own (a tap of W
+    // is enough): rise each frame until the body fits `W.climbNudge` further in the push direction, then
+    // step onto the top. Stops early if the head hits something.
+    if (wall && wasOnGround && !climbDir) {
+      const len = Math.hypot(dx, dz) || 1
+      climbDir = [dx / len, dz / len]
+    }
+    if (climbDir) {
+      const p = camera.position
       vy = 0
+      p.y += W.riseSpeed * dt
+      if (bodyHits(p)) {
+        p.y -= W.riseSpeed * dt // ceiling: give up
+        climbDir = null
+      } else {
+        const [ux, uz] = climbDir
+        p.x += ux * W.climbNudge
+        p.z += uz * W.climbNudge
+        if (bodyHits(p)) {
+          p.x -= ux * W.climbNudge // not high enough yet: keep rising next frame
+          p.z -= uz * W.climbNudge
+        } else climbDir = null // over the edge: now standing on top
+      }
     }
     if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
   }
