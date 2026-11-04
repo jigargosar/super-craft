@@ -45,7 +45,7 @@ const PARAMS = {
     boostStep: 1.5, // +/- keys multiply/divide all move speeds by this (both modes), clamped to boostRange
     boostRange: [0.25, 8],
   },
-  // edit: block breaking/placing. reach = max ray length in blocks (1000 = effectively unlimited); place = block type right click puts down.
+  // edit: block breaking/placing. reach = max ray length in blocks (1000 = effectively unlimited); place = default hotbar block.
   edit: { reach: 1000, place: 'dirt' as BlockType },
   // walk: player physics (bab-only for now). Body = box radius×2 wide, `height` tall; eyes at camera.eyeHeight.
   // Jump apex = jumpSpeed² / (2 × gravity) ≈ 1.45 blocks, enough to climb one block.
@@ -599,6 +599,7 @@ let onGround = false
 let climbDir: [number, number] | null = null // go-to-top: push direction while a climb is running
 let boost = 1 // speed multiplier from +/- keys
 let look = 1 // turn-speed multiplier from [ / ] keys (mouse + arrows)
+let selected: BlockType = PARAMS.edit.place // hotbar: block right click places (keys 1-5 = BLOCK_TYPES order)
 // World coords → grid: block (gx, gy, gz) spans world [gx - size/2, +1) × [gy, +1) × [gz - size/2, +1).
 const solidAt = (wx: number, wy: number, wz: number) => {
   const [gx, gy, gz] = [
@@ -674,7 +675,7 @@ const setMode = (m: typeof mode) => {
   showHud()
 }
 const showHud = () =>
-  (hud.textContent = `${mode} · speed ×${boost.toFixed(2)} (+/-) · turn ×${look.toFixed(2)} ([ ]) · LMB break · RMB place · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
+  (hud.textContent = `${mode} · place ${selected} (1-5) · speed ×${boost.toFixed(2)} (+/-) · turn ×${look.toFixed(2)} ([ ]) · LMB break · RMB place · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
 setMode(mode)
 // R = reset pose on the forest floor, in walk mode (↔ three position.set + lookAt)
 const resetPose = () => {
@@ -694,7 +695,7 @@ addEventListener('wheel', (e) => {
   else camera.position.addInPlace(d)
 })
 // --- Break / place blocks (while the mouse is captured): left click breaks the block under the crosshair,
-// right click places PARAMS.edit.place on the face you're looking at. Ray in grid coords (x/z offset by size/2).
+// right click places the `selected` hotbar block on the face you're looking at. Ray in grid coords (x/z offset by size/2).
 const aimed = () => {
   let cell: number[] | null = null
   const normal = [0, 0, 0]
@@ -730,7 +731,7 @@ canvas.addEventListener('mousedown', (e) => {
   else if (e.button === 2) {
     const [nx, ny, nz] = [x + a.normal[0], y + a.normal[1], z + a.normal[2]]
     if (get(nx, ny, nz) !== 0) return
-    placeAt(nx, ny, nz, PARAMS.edit.place)
+    placeAt(nx, ny, nz, selected)
     if (mode === 'walk' && bodyHits(camera.position))
       return placeAt(nx, ny, nz, null) // not inside yourself
   } else return
@@ -750,7 +751,9 @@ addEventListener('keydown', (e) => {
     const [lo, hi] = C.lookRange
     look = Math.min(hi, Math.max(lo, look * C.lookStep ** lstep))
   }
-  if (step || lstep) (showHud(), save())
+  const slot = BLOCK_TYPES[+e.code.replace('Digit', '') - 1] // Digit1..Digit5
+  if (slot) selected = slot
+  if (step || lstep || slot) (showHud(), save())
 })
 const axis = (pos: string, neg: string) =>
   (keys.has(pos) || tapped.has(pos) ? 1 : 0) -
@@ -865,7 +868,7 @@ engine.runRenderLoop(() => {
   scene.render()
 })
 
-// --- Save / load (this browser only, localStorage): block edits, pose, mode, speed and turn multipliers.
+// --- Save / load (this browser only, localStorage): block edits, pose, mode, speed and turn multipliers, hotbar block.
 //     Saved on every edit/setting change, every 2 s, and when the page hides. All access in try/catch:
 //     storage can be blocked (private window, previews) and the app must still run. ---
 const SAVE_KEY = 'super-craft-bab-001'
@@ -882,6 +885,7 @@ function save() {
         mode,
         boost,
         look,
+        selected,
       }),
     )
   } catch {}
@@ -895,6 +899,7 @@ try {
     camera.position = new Vector3(...(d.pos as [number, number, number]))
     ;[camera.rotation.x, camera.rotation.y] = d.rot
     ;[boost, look] = [d.boost, d.look]
+    if (BLOCK_TYPES.includes(d.selected)) selected = d.selected
     setMode(d.mode)
   }
 } catch {}
