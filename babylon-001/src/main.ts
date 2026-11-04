@@ -36,12 +36,15 @@ const PARAMS = {
     wheelStep: 1.5, // blocks moved along the view direction per mouse-wheel notch (zoom)
     eyeHeight: 1.7, // R reset: stand on the ground nearest the chunk center (inside the forest)
     clearView: 6, // R reset: blocks of open air required ahead at eye level, so you don't face a leaf wall
-    moveSpeed: 8, // fly mode: blocks per second (WASD, Space up, Shift down)
+    moveSpeed: 12, // fly mode: blocks per second (WASD, Space up, Shift down)
+    boostStep: 1.5, // +/- keys multiply/divide all move speeds by this (both modes), clamped to boostRange
+    boostRange: [0.25, 8],
   },
   // walk: player physics (bab-only for now). Body = box radius×2 wide, `height` tall; eyes at camera.eyeHeight.
   // Jump apex = jumpSpeed² / (2 × gravity) ≈ 1.45 blocks, enough to climb one block.
   walk: {
-    speed: 5,
+    speed: 7, // blocks per second
+    sprint: 2, // speed × this while Shift is held (walk mode; Shift = down in fly mode)
     gravity: 28,
     jumpSpeed: 9,
     height: 1.8,
@@ -547,6 +550,7 @@ const W = PARAMS.walk
 let mode: 'walk' | 'fly' = 'fly' // start in fly at the overview pose; R drops you into walk mode
 let vy = 0 // vertical speed (walk mode), blocks/s
 let onGround = false
+let boost = 1 // speed multiplier from +/- keys
 // World coords → grid: block (gx, gy, gz) spans world [gx - size/2, +1) × [gy, +1) × [gz - size/2, +1).
 const solidAt = (wx: number, wy: number, wz: number) => {
   const [gx, gy, gz] = [
@@ -603,8 +607,10 @@ document.body.append(hud)
 const setMode = (m: typeof mode) => {
   mode = m
   vy = 0
-  hud.textContent = `${m} · F walk/fly · R reset · wheel zoom · WASD Space${m === 'fly' ? ' Shift' : ''}`
+  showHud()
 }
+const showHud = () =>
+  (hud.textContent = `${mode} · speed ×${boost.toFixed(2)} (+/-) · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
 setMode(mode)
 // R = reset pose on the forest floor, in walk mode (↔ three position.set + lookAt)
 const resetPose = () => {
@@ -626,11 +632,17 @@ addEventListener('wheel', (e) => {
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') resetPose()
   if (e.code === 'KeyF') setMode(mode === 'walk' ? 'fly' : 'walk')
+  const step = { Equal: 1, NumpadAdd: 1, Minus: -1, NumpadSubtract: -1 }[e.code]
+  if (step) {
+    const [lo, hi] = C.boostRange
+    boost = Math.min(hi, Math.max(lo, boost * C.boostStep ** step))
+    showHud()
+  }
 })
 const axis = (pos: string, neg: string) =>
   (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0)
 const moveDelta = (dt: number, fwd: { x: number; z: number }) => {
-  const s = PARAMS.camera.moveSpeed * dt
+  const s = PARAMS.camera.moveSpeed * boost * dt
   const len = Math.hypot(fwd.x, fwd.z) || 1
   const [fx, fz] = [fwd.x / len, fwd.z / len] // right = (-fz, 0, fx)
   const f = axis('KeyW', 'KeyS')
@@ -657,7 +669,9 @@ engine.runRenderLoop(() => {
   } else {
     // Walk: horizontal from WASD at walk speed (only while locked), vertical from gravity/jump.
     const [dx, , dz] = engine.isPointerLock ? moveDelta(dt, fwd) : [0, 0, 0]
-    const k = W.speed / PARAMS.camera.moveSpeed
+    const k =
+      (W.speed * (keys.has('ShiftLeft') ? W.sprint : 1)) /
+      PARAMS.camera.moveSpeed
     if (onGround && engine.isPointerLock && keys.has('Space')) vy = W.jumpSpeed
     vy -= W.gravity * dt
     const blocked = moveCollide([dx * k, vy * dt, dz * k])
