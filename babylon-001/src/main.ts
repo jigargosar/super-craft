@@ -168,7 +168,20 @@ const C = PARAMS.camera
 const camera = new UniversalCamera('cam', v3(C.position), scene)
 camera.setTarget(v3(C.target))
 camera.inputs.removeByType('FreeCameraKeyboardMoveInput') // movement is our own WASD code (same as three)
-camera.angularSensibility = 1 / C.lookSpeed // babylon: rad/px = 1 / angularSensibility
+// Mouse look is our own too: Babylon's mouse input goes through its movement/interaction system and felt
+// jerky. Ours applies each pointer-lock mousemove to the rotation immediately (like three's PointerLockControls).
+// Right-handed scene: Babylon's convention is yaw -= movementX, pitch -= movementY (pitch < 0 = look down).
+camera.inputs.removeByType('FreeCameraMouseInput')
+const PITCH_LIMIT = 1.5707
+addEventListener('mousemove', (e) => {
+  if (!engine.isPointerLock) return
+  const s = C.lookSpeed * look
+  camera.rotation.y -= e.movementX * s
+  camera.rotation.x = Math.max(
+    -PITCH_LIMIT,
+    Math.min(PITCH_LIMIT, camera.rotation.x - e.movementY * s),
+  )
+})
 // inertia 0: default 0.9 glides each mouse delta into a decaying velocity (≈10× total turn, keeps coasting).
 // With 0, rotation = exactly lookSpeed rad/px and stops with the mouse (↔ three PointerLockControls).
 camera.inertia = 0
@@ -586,7 +599,6 @@ let onGround = false
 let climbDir: [number, number] | null = null // go-to-top: push direction while a climb is running
 let boost = 1 // speed multiplier from +/- keys
 let look = 1 // turn-speed multiplier from [ / ] keys (mouse + arrows)
-const applyLook = () => (camera.angularSensibility = 1 / (C.lookSpeed * look))
 // World coords → grid: block (gx, gy, gz) spans world [gx - size/2, +1) × [gy, +1) × [gz - size/2, +1).
 const solidAt = (wx: number, wy: number, wz: number) => {
   const [gx, gy, gz] = [
@@ -737,7 +749,6 @@ addEventListener('keydown', (e) => {
   if (lstep) {
     const [lo, hi] = C.lookRange
     look = Math.min(hi, Math.max(lo, look * C.lookStep ** lstep))
-    applyLook()
   }
   if (step || lstep) (showHud(), save())
 })
@@ -801,13 +812,12 @@ engine.runRenderLoop(() => {
     return
   }
   if (hud.textContent.startsWith('Click')) showHud()
-  // Arrow keys rotate. Right-handed scene: Babylon's mouse input flips yaw, so ← = +rotation.y.
-  // Pitch clamped just short of straight up/down (same limit as Babylon's mouse input).
+  // Arrow keys rotate, same signs as the mouse: ← = +yaw, ↑ = +pitch (look up).
   const t = C.turnSpeed * look * dt
   camera.rotation.y += axis('ArrowLeft', 'ArrowRight') * t
   camera.rotation.x = Math.max(
     -1.55,
-    Math.min(1.55, camera.rotation.x + axis('ArrowDown', 'ArrowUp') * t),
+    Math.min(1.55, camera.rotation.x + axis('ArrowUp', 'ArrowDown') * t),
   )
   if (mode === 'fly') {
     camera.position.addInPlaceFromFloats(...moveDelta(dt, fwd))
@@ -886,7 +896,6 @@ try {
     setMode(d.mode)
   }
 } catch {}
-applyLook()
 showHud()
 setInterval(save, 2000)
 addEventListener('pagehide', save)
