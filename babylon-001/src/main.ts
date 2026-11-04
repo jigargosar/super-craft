@@ -57,8 +57,6 @@ const PARAMS = {
     height: 1.8,
     radius: 0.3,
     fallResetY: -20,
-    riseRate: 12, // go-to-top easing: rise speed = remaining height × riseRate (blocks/s)
-    riseMin: 3, // ...but never slower than this (blocks/s), so the last bit doesn't crawl
   },
   sun: {
     polarDeg: 50,
@@ -577,7 +575,6 @@ const W = PARAMS.walk
 let mode: 'walk' | 'fly' = 'fly' // start in fly at the overview pose; R drops you into walk mode
 let vy = 0 // vertical speed (walk mode), blocks/s
 let onGround = false
-let riseTo: number | null = null // go-to-top target eye height while rising onto a block
 let boost = 1 // speed multiplier from +/- keys
 let look = 1 // turn-speed multiplier from [ / ] keys (mouse + arrows)
 const applyLook = () => (camera.angularSensibility = 1 / (C.lookSpeed * look))
@@ -646,7 +643,6 @@ document.body.append(hud)
 const setMode = (m: typeof mode) => {
   mode = m
   vy = 0
-  riseTo = null
   showHud()
 }
 const showHud = () =>
@@ -778,49 +774,10 @@ engine.runRenderLoop(() => {
       (W.speed * (keys.has('ShiftLeft') ? W.sprint : 1)) /
       PARAMS.camera.moveSpeed
     if (onGround && keys.has('Space')) vy = W.jumpSpeed
-    if (riseTo === null) vy -= W.gravity * dt
-    const wasOnGround = onGround // go-to-top only from the ground, so jumps are never interrupted
+    vy -= W.gravity * dt
     const { blocked } = moveCollide([dx * k, vy * dt, dz * k])
     onGround = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
-    // Go-to-top: bumped into any block → stand on top of the tallest column touching the side you hit
-    // (ground, trunk or leaves), then keep the step you tried to take. Checked per blocked axis, across the
-    // body's width, so diagonal walking into a wall finds the right column.
-    if (wasOnGround && (blocked[0] || blocked[2])) {
-      const p = camera.position
-      const g = K.size / 2 // world → grid offset on x/z
-      const cols: [number, number][] = []
-      const span = (c: number) => [
-        Math.floor(c - W.radius + g),
-        Math.floor(c + W.radius + g),
-      ]
-      if (blocked[0]) {
-        const gx = Math.floor(p.x + Math.sign(dx) * (W.radius + 0.01) + g)
-        for (let gz = span(p.z)[0]; gz <= span(p.z)[1]; gz++)
-          cols.push([gx, gz])
-      }
-      if (blocked[2]) {
-        const gz = Math.floor(p.z + Math.sign(dz) * (W.radius + 0.01) + g)
-        for (let gx = span(p.x)[0]; gx <= span(p.x)[1]; gx++)
-          cols.push([gx, gz])
-      }
-      let top = -1
-      for (const [gx, gz] of cols) {
-        let y = K.maxHeight - 1
-        while (y >= 0 && get(gx, y, gz) === 0) y--
-        top = Math.max(top, y)
-      }
-      riseTo = Math.max(riseTo ?? p.y, top + 1 + C.eyeHeight) // animated below, not a teleport
-    }
-    // Smooth rise to riseTo: fast at first, easing out (rate ∝ remaining height, min W.riseMin blocks/s).
-    // Gravity is off while rising; walking forward resumes as soon as the body clears the edge.
-    if (riseTo !== null) {
-      const p = camera.position
-      const left = riseTo - p.y
-      p.y += Math.min(left, Math.max(W.riseMin, left * W.riseRate) * dt)
-      vy = 0
-      if (riseTo - p.y < 1e-3) riseTo = null
-    }
     if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
   }
   scene.render()
