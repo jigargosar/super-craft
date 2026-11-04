@@ -1,4 +1,4 @@
-// babylon-001 starter scene: floor + sky + cube + hemispheric/ambient/sun lights.
+// babylon-001 scene: one plains chunk (16x16 blocks) + sky + hemispheric/ambient/sun lights.
 // PARITY: three-001/src/main.ts mirrors this file. The PARAMS block is identical in both;
 // change a value in one, change it in the other. API pairs are noted per section.
 // Gotchas vs three: (1) right-handed system turned on so coordinates match three;
@@ -12,24 +12,58 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight'
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator'
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent' // side-effect: enables shadows
-import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder'
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder'
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial'
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
-import { Vector3 } from '@babylonjs/core/Maths/math.vector'
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector'
+import '@babylonjs/core/Meshes/thinInstanceMesh' // side-effect: enables thin instances
 import { SkyMaterial } from '@babylonjs/materials/sky/skyMaterial'
+import { createNoise2D } from 'simplex-noise'
+import seedrandom from 'seedrandom'
 
 // --- PARAMS (keep identical in both apps) ---
 const PARAMS = {
-  camera: { fovDeg: 70, near: 0.1, far: 2000, position: [6, 5, 8], target: [0, 0.5, 0] },
-  sun: { polarDeg: 50, azimuthDeg: 30, color: '#ffffff', intensity: 2, shadowMapSize: 2048 },
+  camera: {
+    fovDeg: 70,
+    near: 0.1,
+    far: 2000,
+    position: [18, 16, 18],
+    target: [0, 4, 0],
+  },
+  sun: {
+    polarDeg: 50,
+    azimuthDeg: 30,
+    color: '#ffffff',
+    intensity: 2,
+    shadowMapSize: 2048,
+  },
   hemi: { sky: '#bfd8ff', ground: '#6b5a3a', intensity: 0.8 },
   ambient: { color: '#ffffff', intensity: 0.2 },
   // luminance: babylon-only (its sky has built-in tone mapping; 0.6 matches three's ACES look)
-  sky: { size: 1000, turbidity: 2, rayleigh: 1, mieCoefficient: 0.005, mieDirectionalG: 0.8, luminance: 0.6 },
-  floor: { size: 64, color: '#5b8c3a', roughness: 1, metalness: 0 },
-  cube: { size: 1, color: '#8b5a2b', roughness: 1, metalness: 0 },
+  sky: {
+    size: 1000,
+    turbidity: 2,
+    rayleigh: 1,
+    mieCoefficient: 0.005,
+    mieDirectionalG: 0.8,
+    luminance: 0.6,
+  },
+  // chunk: plains biome heightmap. height = baseHeight + amplitude * (noise + 1), noise in [-1, 1]
+  chunk: {
+    size: 16,
+    maxHeight: 32,
+    seed: 'plains-001',
+    baseHeight: 3,
+    amplitude: 3,
+    noiseScale: 0.06,
+    dirtDepth: 3,
+  },
+  blocks: {
+    roughness: 1,
+    metalness: 0,
+    colors: { grass: '#5b8c3a', dirt: '#8b5a2b', stone: '#7f7f7f' },
+  },
 } as const
 
 const lin = (hex: string) => Color3.FromHexString(hex).toLinearSpace() // sRGB hex → linear (three does this itself)
@@ -57,7 +91,11 @@ camera.attachControl(canvas, true)
 // --- Sun direction: unit vector pointing TOWARD the sun. Same formula as three's setFromSphericalCoords. ---
 const phi = rad(PARAMS.sun.polarDeg)
 const theta = rad(PARAMS.sun.azimuthDeg)
-const sunDir = new Vector3(Math.sin(phi) * Math.sin(theta), Math.cos(phi), Math.sin(phi) * Math.cos(theta))
+const sunDir = new Vector3(
+  Math.sin(phi) * Math.sin(theta),
+  Math.cos(phi),
+  Math.sin(phi) * Math.cos(theta),
+)
 
 // --- Sky (SkyMaterial ↔ three Sky addon; both Preetham model, same parameter names) ---
 const skyMat = new SkyMaterial('skyMat', scene)
@@ -90,7 +128,10 @@ const shadows = new ShadowGenerator(PARAMS.sun.shadowMapSize, sun)
 shadows.usePercentageCloserFiltering = true
 
 // --- Materials (PBRMaterial ↔ MeshStandardMaterial; PBRMaterial chosen because it has ambientColor) ---
-const pbr = (name: string, m: { color: string; roughness: number; metalness: number }) => {
+const pbr = (
+  name: string,
+  m: { color: string; roughness: number; metalness: number },
+) => {
   const mat = new PBRMaterial(name, scene)
   mat.albedoColor = lin(m.color)
   mat.roughness = m.roughness
@@ -99,16 +140,62 @@ const pbr = (name: string, m: { color: string; roughness: number; metalness: num
   return mat
 }
 
-// --- Floor ---
-const ground = CreateGround('floor', { width: PARAMS.floor.size, height: PARAMS.floor.size }, scene)
-ground.material = pbr('floorMat', PARAMS.floor)
-ground.receiveShadows = true
+// --- Chunk generation (plains). Identical code in both apps; only rendering differs. ---
+// Heightmap from seeded 2D simplex noise. Only blocks touching air are kept (hidden ones skipped).
+type BlockType = keyof typeof PARAMS.blocks.colors
+const K = PARAMS.chunk
+const noise2D = createNoise2D(seedrandom(K.seed))
+const heights = Array.from({ length: K.size }, (_, x) =>
+  Array.from({ length: K.size }, (_, z) =>
+    Math.min(
+      K.maxHeight,
+      Math.floor(
+        K.baseHeight +
+          K.amplitude * (noise2D(x * K.noiseScale, z * K.noiseScale) + 1),
+      ),
+    ),
+  ),
+)
+// Solid if inside the heightmap. Below y=0 counts as solid so the chunk bottom is hidden; outside x/z is air.
+const solid = (x: number, y: number, z: number) =>
+  y < 0 || (x >= 0 && x < K.size && z >= 0 && z < K.size && y < heights[x][z])
+const NEIGHBORS = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+]
+// Block centers per type, chunk centered on the origin in x/z, sitting on y=0.
+const blocks: Record<BlockType, [number, number, number][]> = {
+  grass: [],
+  dirt: [],
+  stone: [],
+}
+for (let x = 0; x < K.size; x++)
+  for (let z = 0; z < K.size; z++)
+    for (let y = 0; y < heights[x][z]; y++) {
+      if (NEIGHBORS.every(([dx, dy, dz]) => solid(x + dx, y + dy, z + dz)))
+        continue
+      const depth = heights[x][z] - 1 - y // 0 = top block
+      const type: BlockType =
+        depth === 0 ? 'grass' : depth <= K.dirtDepth ? 'dirt' : 'stone'
+      blocks[type].push([x - K.size / 2 + 0.5, y + 0.5, z - K.size / 2 + 0.5])
+    }
 
-// --- Cube (1x1x1 block sitting on the floor) ---
-const cube = CreateBox('cube', { size: PARAMS.cube.size }, scene)
-cube.position.y = PARAMS.cube.size / 2
-cube.material = pbr('cubeMat', PARAMS.cube)
-shadows.addShadowCaster(cube)
+// --- Chunk rendering: one box per block type drawn via thin instances (↔ three InstancedMesh) ---
+for (const [type, list] of Object.entries(blocks) as [
+  BlockType,
+  [number, number, number][],
+][]) {
+  const B = PARAMS.blocks
+  const mesh = CreateBox(type, { size: 1 }, scene)
+  mesh.material = pbr(`${type}Mat`, { ...B, color: B.colors[type] })
+  mesh.thinInstanceAdd(list.map((p) => Matrix.Translation(...p)))
+  mesh.receiveShadows = true
+  shadows.addShadowCaster(mesh)
+}
 
 // --- Resize + loop ---
 window.addEventListener('resize', () => engine.resize())
