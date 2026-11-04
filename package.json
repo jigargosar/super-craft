@@ -14,7 +14,7 @@
   "license": "MIT",
   "author": "Jigar Gosar",
   "scripts": {
-    "install:all": "npm run install:tre && npm run install:bab",
+    "install": "npm run install:tre && npm run install:bab",
     "install:tre": "npm install --prefix three-001",
     "install:bab": "npm install --prefix babylon-001",
     "dev": "concurrently -n tre,bab -c green,blue \"npm:dev:tre\" \"npm:dev:bab\"",
