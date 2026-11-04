@@ -57,6 +57,7 @@ const PARAMS = {
     height: 1.8,
     radius: 0.3,
     fallResetY: -20,
+    riseSpeed: 10, // go-to-top: blocks per second while rising onto a block you walked into
   },
   sun: {
     polarDeg: 50,
@@ -575,6 +576,7 @@ const W = PARAMS.walk
 let mode: 'walk' | 'fly' = 'fly' // start in fly at the overview pose; R drops you into walk mode
 let vy = 0 // vertical speed (walk mode), blocks/s
 let onGround = false
+let riseTo: number | null = null // go-to-top: eye height we're rising to
 let boost = 1 // speed multiplier from +/- keys
 let look = 1 // turn-speed multiplier from [ / ] keys (mouse + arrows)
 const applyLook = () => (camera.angularSensibility = 1 / (C.lookSpeed * look))
@@ -593,6 +595,7 @@ const solidAt = (wx: number, wy: number, wz: number) => {
     : get(gx, gy, gz)
 }
 // Does the body (feet at camera.y - eyeHeight) overlap any solid block?
+let lastHit = [0, 0, 0]
 const bodyHits = (p: Vector3) => {
   const e = 1e-3 // shrink so touching a face isn't counted as overlap
   const feet = p.y - C.eyeHeight
@@ -612,7 +615,10 @@ const bodyHits = (p: Vector3) => {
         z++
       ) {
         const id = solidAt(x + 0.5, y + 0.5, z + 0.5)
-        if (id) return id // first overlapping block's id
+        if (id) {
+          lastHit = [x, y, z] // world cell of the block we ran into
+          return id
+        }
       }
   return 0
 }
@@ -621,6 +627,7 @@ const bodyHits = (p: Vector3) => {
 // F from fly mode, you can walk out). Returns which axes were blocked.
 const moveCollide = (d: readonly number[]) => {
   const blocked = [false, false, false]
+  let wall: number[] | null = null // cell that blocked an x/z move
   const steps = Math.ceil(Math.max(...d.map(Math.abs)) / 0.4) || 1
   const p = camera.position
   for (let s = 0; s < steps; s++)
@@ -633,8 +640,9 @@ const moveCollide = (d: readonly number[]) => {
       if (wasInside || !hit) continue
       p[key] = before
       blocked[a] = true
+      if (a !== 1) wall = lastHit
     }
-  return { blocked }
+  return { blocked, wall }
 }
 const hud = document.createElement('div') // mode + key help under the app label
 hud.style.cssText =
@@ -643,6 +651,7 @@ document.body.append(hud)
 const setMode = (m: typeof mode) => {
   mode = m
   vy = 0
+  riseTo = null
   showHud()
 }
 const showHud = () =>
@@ -774,10 +783,24 @@ engine.runRenderLoop(() => {
       (W.speed * (keys.has('ShiftLeft') ? W.sprint : 1)) /
       PARAMS.camera.moveSpeed
     if (onGround && keys.has('Space')) vy = W.jumpSpeed
-    vy -= W.gravity * dt
-    const { blocked } = moveCollide([dx * k, vy * dt, dz * k])
+    if (riseTo === null) vy -= W.gravity * dt
+    const wasOnGround = onGround
+    const { blocked, wall } = moveCollide([dx * k, vy * dt, dz * k])
     onGround = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
+    // Go-to-top (from the ground only): walked into a block → rise to the top of THAT block's stack
+    // (count solid blocks upward from the one hit). Linear rise, gravity off until there.
+    if (wasOnGround && wall && riseTo === null) {
+      const [x, y0, z] = wall
+      let y = y0
+      while (solidAt(x + 0.5, y + 0.5, z + 0.5)) y++
+      riseTo = y + C.eyeHeight + 0.01
+    }
+    if (riseTo !== null) {
+      camera.position.y = Math.min(riseTo, camera.position.y + W.riseSpeed * dt)
+      vy = 0
+      if (camera.position.y >= riseTo) riseTo = null
+    }
     if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
   }
   scene.render()
