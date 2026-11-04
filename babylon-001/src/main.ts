@@ -50,7 +50,6 @@ const PARAMS = {
   walk: {
     speed: 7, // blocks per second
     sprint: 2, // speed × this while Shift is held (walk mode; Shift = down in fly mode)
-    climbSpeed: 6, // walking into any block from the ground: rise at this speed (blocks/s) until you're on top
     gravity: 28,
     jumpSpeed: 9,
     height: 1.8,
@@ -574,7 +573,6 @@ const W = PARAMS.walk
 let mode: 'walk' | 'fly' = 'fly' // start in fly at the overview pose; R drops you into walk mode
 let vy = 0 // vertical speed (walk mode), blocks/s
 let onGround = false
-let climbing = false // rising up a wall (started while on the ground)
 let boost = 1 // speed multiplier from +/- keys
 // World coords → grid: block (gx, gy, gz) spans world [gx - size/2, +1) × [gy, +1) × [gz - size/2, +1).
 const solidAt = (wx: number, wy: number, wz: number) => {
@@ -764,15 +762,23 @@ engine.runRenderLoop(() => {
       PARAMS.camera.moveSpeed
     if (onGround && keys.has('Space')) vy = W.jumpSpeed
     vy -= W.gravity * dt
-    const wasOnGround = onGround
     const { blocked } = moveCollide([dx * k, vy * dt, dz * k])
     onGround = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
-    // Bumped into ANY block while standing on the ground: rise smoothly until on top. A climb started on the
-    // ground continues while the wall is still there; bumping into something mid-air (jump/fall) doesn't climb.
-    const wall = blocked[0] || blocked[2]
-    climbing = wall && (wasOnGround || climbing)
-    if (climbing) vy = W.climbSpeed
+    // Go-to-top: bumped into any block → jump straight onto the top of the column you walked into
+    // (its highest block: ground, trunk or leaves), then keep the step you tried to take.
+    if (blocked[0] || blocked[2]) {
+      const p = camera.position
+      const len = Math.hypot(dx, dz) || 1
+      const ahead = W.radius + 0.5 // reach into the blocking column
+      const gx = Math.floor(p.x + (dx / len) * ahead + K.size / 2)
+      const gz = Math.floor(p.z + (dz / len) * ahead + K.size / 2)
+      let top = K.maxHeight - 1
+      while (top >= 0 && get(gx, top, gz) === 0) top--
+      p.y = Math.max(p.y, top + 1 + C.eyeHeight)
+      vy = 0
+      moveCollide([dx * k, 0, dz * k])
+    }
     if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
   }
   scene.render()
