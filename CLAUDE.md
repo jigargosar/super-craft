@@ -27,7 +27,8 @@ A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `b
 
 ## Parity gaps (one line each: what differs, then "fix" or "skip (reason)")
 
-- Textures: tre = reference port (seed `tex-001`, base + speckles); bab = clustered palettes (seed `tex-002`). fix.
+- Textures (incl. log/leaves): tre = reference port (seed `tex-001`, base + speckles); bab = clustered palettes (seed
+  `tex-002`). Different `PARAMS.texture` fields. fix.
 - Face shading: bab-only `faceShade` (top 1, z 0.8, x 0.62, bottom 0.5); tre has none. fix.
 - Clouds: tre sky has clouds; bab has none. fix.
 - Sky `luminance` 0.6: bab-only. skip (no Three.js Sky equivalent).
