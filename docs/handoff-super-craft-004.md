@@ -126,7 +126,7 @@ Headless test (Claude only): `vite preview --port <free port>`, Playwright `chro
 | bab hotbar + break/place | built; verify agent was still running at handoff | cd16960, 7d0811d | real-mouse pointer-lock click unconfirmed |
 | bab preview | current | v36, build 0f09cd9 | |
 | tre | paused | v11 | don't touch |
-| handoff-super-craft-003.md | old | repo root | superseded |
+| handoff-super-craft-003.md | old | docs/ | superseded |
 
 ## 11. Next steps
 1. **Next action:** ask the user to confirm trees + LMB/RMB clicks in the bab preview (v36), then start Clouds for bab (`CloudProceduralTexture`), commit, push, republish.
