@@ -19,7 +19,7 @@ const PARAMS = {
     target: [0, 10, 0],
     lookSpeed: 0.001, // radians per mouse pixel (pointer lock)
     wheelStep: 1.5, // blocks moved along the view direction per mouse-wheel notch (zoom)
-    eyeHeight: 1.7, // R reset: stand at the chunk center, eyes this high above the top block, facing -z
+    eyeHeight: 1.7, // R reset: stand on the ground nearest the chunk center (inside the forest), facing -z
     moveSpeed: 8, // blocks per second (WASD, Space up, Shift down)
   },
   sun: {
@@ -435,15 +435,23 @@ for (const [type, list] of Object.entries(blocks) as [
 const keys = new Set<string>()
 addEventListener('keydown', (e) => keys.add(e.code))
 addEventListener('keyup', (e) => keys.delete(e.code))
-// R reset target (identical in both apps): center column of the chunk, eyes eyeHeight above its top block.
+// R reset target (identical in both apps): stand ON THE GROUND inside the forest. Pick the column nearest
+// the chunk center whose terrain top has 2 blocks of air above it (no trunk/leaves at body height).
 const centerEye = () => {
   const c = K.size / 2
-  let y = K.maxHeight - 1
-  while (y >= 0 && get(c, y, c) === 0) y--
+  const free = (x: number, z: number) =>
+    get(x, heights[x][z], z) === 0 && get(x, heights[x][z] + 1, z) === 0
+  let best = [c, c]
+  for (let r = 0; r < K.size && !free(best[0], best[1]); r++)
+    for (let x = c - r; x <= c + r; x++)
+      for (let z = c - r; z <= c + r; z++)
+        if (inside(x, 0, z) && free(x, z) && !free(best[0], best[1]))
+          best = [x, z]
+  const [x, z] = best
   return [
-    c - K.size / 2 + 0.5,
-    y + 1 + C.eyeHeight,
-    c - K.size / 2 + 0.5,
+    x - K.size / 2 + 0.5,
+    heights[x][z] + C.eyeHeight,
+    z - K.size / 2 + 0.5,
   ] as const
 }
 // Mouse wheel = zoom: dolly along the view direction (identical in both apps). Returns blocks to move.
