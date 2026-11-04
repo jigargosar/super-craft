@@ -14,7 +14,13 @@
   "license": "MIT",
   "author": "Jigar Gosar",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "postinstall": "npm install --prefix three-001 && npm install --prefix babylon-001",
+    "dev": "concurrently -n tre,bab -c green,blue \"npm:dev:tre\" \"npm:dev:bab\"",
+    "dev:tre": "npm run dev --prefix three-001",
+    "dev:bab": "npm run dev --prefix babylon-001",
+    "build": "npm run build:tre && npm run build:bab",
+    "build:tre": "npm run build --prefix three-001",
+    "build:bab": "npm run build --prefix babylon-001"
   },
   "prettier": {
     "semi": false,
@@ -24,5 +30,8 @@
   },
   "dependencies": {
     "prettier": "^3.9.10"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.6"
   }
 }
