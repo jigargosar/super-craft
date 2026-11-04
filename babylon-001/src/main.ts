@@ -155,6 +155,9 @@ const rad = (deg: number) => (deg * Math.PI) / 180
 const canvas = document.querySelector<HTMLCanvasElement>('#app')!
 const engine = new Engine(canvas, true, undefined, true)
 const scene = new Scene(engine)
+// Turning smoothness: Babylon picks meshes on EVERY pointer move by default; with thousands of block
+// instances that stalls frames while you move the mouse. We never use hover picking (blocks use our raycast).
+scene.skipPointerMovePicking = true
 scene.useRightHandedSystem = true // match three's coordinate system
 const ip = scene.imageProcessingConfiguration // ↔ renderer.toneMapping = ACESFilmic
 ip.toneMappingEnabled = true
@@ -173,7 +176,7 @@ camera.fov = rad(C.fovDeg)
 camera.minZ = C.near
 camera.maxZ = C.far
 camera.attachControl(canvas, true)
-canvas.addEventListener('click', () => freeMouse || engine.enterPointerlock()) // free mouse: never capture
+canvas.addEventListener('click', () => engine.enterPointerlock())
 
 // --- Sun direction: unit vector pointing TOWARD the sun. Same formula as three's setFromSphericalCoords. ---
 const phi = rad(PARAMS.sun.polarDeg)
@@ -760,9 +763,8 @@ const frameDt = () => {
 
 // --- Resize + loop ---
 window.addEventListener('resize', () => engine.resize())
-// Free mouse (button top-right, or ?test for headless tests): controls run without capturing the mouse.
-// Turn with arrow keys or by dragging. window.__bab exposes the camera for scripts.
-let freeMouse = new URLSearchParams(location.search).has('test')
+// ?test (Claude's headless tests only): controls run without capturing the mouse; window.__bab exposes state.
+const freeMouse = new URLSearchParams(location.search).has('test')
 Object.assign(window, {
   __bab: {
     camera,
@@ -775,6 +777,8 @@ Object.assign(window, {
     }),
   },
 })
+const setText = (el: HTMLElement, t: string) =>
+  el.textContent !== t && (el.textContent = t) // skip no-op DOM writes
 const pos = document.createElement('div') // live position readout under the HUD (manual testing)
 pos.style.cssText =
   'position:fixed;top:62px;left:8px;padding:2px 8px;background:#0008;color:#fff;font:12px ui-monospace,monospace;border-radius:4px;pointer-events:none'
@@ -785,8 +789,12 @@ engine.runRenderLoop(() => {
   // HUD prompts to click while the mouse is free; all controls run only while captured (pointer lock).
   const locked = engine.isPointerLock || freeMouse
   const c = camera.position
-  pos.textContent = `${engine.getFps().toFixed(0)} fps  x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`
-  hud.style.background = locked ? '#0008' : '#b00c'
+  setText(
+    pos,
+    `${engine.getFps().toFixed(0)} fps  x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`,
+  )
+  const bg = locked ? '#0008' : '#b00c'
+  if (hud.style.background !== bg) hud.style.background = bg
   if (!locked) {
     hud.textContent = 'Click the view to capture the mouse (Esc releases it)'
     scene.render()
@@ -899,18 +907,8 @@ const BUTTONS: [string, () => void][] = [
     },
   ],
 ]
-const freeLabel = () => `🖱 Free mouse: ${freeMouse ? 'ON' : 'off'}`
-BUTTONS.unshift([
-  freeLabel(),
-  () => {
-    freeMouse = !freeMouse
-    freeBtn.textContent = freeLabel()
-  },
-])
-let freeBtn!: HTMLButtonElement
 for (const [label, onClick] of BUTTONS) {
   const b = document.createElement('button')
-  if (label === freeLabel()) freeBtn = b
   b.textContent = label
   b.style.cssText =
     'padding:4px 10px;background:#000a;color:#fff;border:1px solid #fff4;border-radius:4px;font:600 13px system-ui,sans-serif;cursor:pointer'
