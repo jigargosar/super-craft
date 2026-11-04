@@ -15,15 +15,19 @@ A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `b
 4. Report output plainly; never hide failures.
 5. Work on `main` only.
 6. tre and bab are fully independent: no shared code, no master app. They borrow better tech from each other.
-7. Parity check: after any change, confirm both apps still match in settings and behavior, using equivalent APIs (e.g.
+7. (PAUSED while Focus is bab only) Parity check: after any change, confirm both apps still match in settings and behavior, using equivalent APIs (e.g.
    the identical `PARAMS` block).
 8. Stamp every screenshot "tre" or "bab".
 9. Features over docs. Ship features; keep docs minimal; skip nitpicks.
 10. Perfection alarm: after 2 rounds polishing the same feature with no new feature added, stop and say
     "⚠ Polishing, not progressing. Move on to <next feature>?" Repeat every round until we move on.
 11. When a feature is good enough to show, commit it and go to the next line in Next.
-12. Record every tre/bab mismatch in Parity gaps (a separate agent closes them; we keep building features). An
+12. (PAUSED while Focus is bab only) Record every tre/bab mismatch in Parity gaps (a separate agent closes them; we keep building features). An
     unlisted mismatch is a bug.
+13. Focus: bab only. tre is paused: don't build, test, run or parity-check it until I say so.
+14. After every bab commit, rebuild and republish the bab preview artifact
+    (https://claude.ai/artifact/6VKqC5eoPHUeyQe5CxsyLJ), and in every report say whether it is current
+    (its build stamp vs HEAD). Never report a feature as done while the preview is stale.
 
 ## Parity gaps (one line each: what differs, then "fix" or "skip (reason)")
 
@@ -38,7 +42,5 @@ A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `b
 
 last dot is the task we work on.
 
-- [ ] Clouds for bab: try `CloudProceduralTexture` (tre's sky already has clouds).
-- [ ] Parity check tre vs bab with stamped screenshots; republish both preview artifacts.
+- [.] Clouds for bab: try `CloudProceduralTexture` (tre's sky already has clouds).
 - [ ] Spike: Babylon atmosphere addon for an HDR sky.
-- [.] Build a chunk of appropriate size of a particular biome.
