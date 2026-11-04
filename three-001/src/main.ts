@@ -428,11 +428,17 @@ for (const [type, list] of Object.entries(blocks) as [
   scene.add(mesh)
 }
 
-// --- Fly movement (identical in both apps): WASD on the horizontal plane, Space up, Shift down.
+// --- Fly movement (identical in both apps): WASD on the horizontal plane, Space up, Shift down, R reset.
 //     fwd = camera look direction; returns the position delta for this frame. ---
 const keys = new Set<string>()
 addEventListener('keydown', (e) => keys.add(e.code))
 addEventListener('keyup', (e) => keys.delete(e.code))
+// R = reset pose to PARAMS.camera position/target (↔ babylon position + setTarget)
+const resetPose = () => {
+  camera.position.set(...C.position)
+  camera.lookAt(...C.target)
+}
+addEventListener('keydown', (e) => e.code === 'KeyR' && resetPose())
 const axis = (pos: string, neg: string) =>
   (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0)
 const moveDelta = (dt: number, fwd: { x: number; z: number }) => {
