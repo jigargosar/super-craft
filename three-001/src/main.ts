@@ -1,5 +1,5 @@
 // three-001 scene: one plains chunk (16x16 blocks) + sky + hemisphere/ambient/sun lights.
-// PARITY: babylon-001/src/main.ts mirrors this file. The PARAMS block is identical in both;
+// PARITY: babylon-001/src/main.ts mirrors this file. PARAMS match except gaps listed in CLAUDE.md "Parity gaps";
 // change a value in one, change it in the other. API pairs are noted per section.
 // Renderer: WebGLRenderer (Sky addon is WebGL-only; WebGPU uses SkyMesh instead).
 import './style.css'

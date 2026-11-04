@@ -18,6 +18,19 @@ A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `b
 7. Parity check: after any change, confirm both apps still match in settings and behavior, using equivalent APIs (e.g.
    the identical `PARAMS` block).
 8. Stamp every screenshot "tre" or "bab".
+9. Features over docs. Ship features; keep docs minimal; skip nitpicks.
+10. Perfection alarm: after 2 rounds polishing the same feature with no new feature added, stop and say
+    "⚠ Polishing, not progressing. Move on to <next feature>?" Repeat every round until we move on.
+11. When a feature is good enough to show, commit it and go to the next line in Next.
+12. Record every tre/bab mismatch in Parity gaps (a separate agent closes them; we keep building features). An
+    unlisted mismatch is a bug.
+
+## Parity gaps (one line each: what differs, then "fix" or "skip (reason)")
+
+- Textures: tre = reference port (seed `tex-001`, base + speckles); bab = clustered palettes (seed `tex-002`). fix.
+- Face shading: bab-only `faceShade` (top 1, z 0.8, x 0.62, bottom 0.5); tre has none. fix.
+- Clouds: tre sky has clouds; bab has none. fix.
+- Sky `luminance` 0.6: bab-only. skip (no Three.js Sky equivalent).
 
 ## Next (remove each line when done)
 

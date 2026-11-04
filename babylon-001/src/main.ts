@@ -1,5 +1,5 @@
 // babylon-001 scene: one plains chunk (16x16 blocks) + sky + hemispheric/ambient/sun lights.
-// PARITY: three-001/src/main.ts mirrors this file. The PARAMS block is identical in both;
+// PARITY: three-001/src/main.ts mirrors this file. PARAMS match except gaps listed in CLAUDE.md "Parity gaps";
 // change a value in one, change it in the other. API pairs are noted per section.
 // Gotchas vs three: (1) right-handed system turned on so coordinates match three;
 // (2) PBR needs linear colors, so every hex goes through lin(); (3) no AmbientLight class,
