@@ -8,6 +8,8 @@
   </head>
   <body>
     <canvas id="app"></canvas>
+    <!-- App label (top-left): which app this is; also stamps screenshots. pointer-events none = never blocks clicks -->
+    <div style="position:fixed;top:8px;left:8px;padding:2px 8px;background:#0008;color:#fff;font:600 14px system-ui,sans-serif;border-radius:4px;pointer-events:none">tre · Three.js</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
