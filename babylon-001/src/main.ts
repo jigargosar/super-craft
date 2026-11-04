@@ -33,7 +33,7 @@ const PARAMS = {
     position: [40, 34, 40],
     target: [0, 10, 0],
     lookSpeed: 0.001, // radians per mouse pixel (pointer lock)
-    turnSpeed: 1.8, // arrow keys: radians per second (←→ turn, ↑↓ look up/down); works without pointer lock
+    turnSpeed: 1.8, // arrow keys: radians per second (←→ turn, ↑↓ look up/down); only while the mouse is captured
     wheelStep: 1.5, // blocks moved along the view direction per mouse-wheel notch (zoom)
     eyeHeight: 1.7, // R reset: stand on the ground nearest the chunk center (inside the forest)
     clearView: 6, // R reset: blocks of open air required ahead at eye level, so you don't face a leaf wall
@@ -673,6 +673,14 @@ window.addEventListener('resize', () => engine.resize())
 engine.runRenderLoop(() => {
   const dt = frameDt()
   const fwd = camera.getTarget().subtract(camera.position)
+  // HUD prompts to click while the mouse is free; all controls run only while captured (pointer lock).
+  hud.style.background = engine.isPointerLock ? '#0008' : '#b00c'
+  if (!engine.isPointerLock) {
+    hud.textContent = 'Click the view to capture the mouse (Esc releases it)'
+    scene.render()
+    return
+  }
+  if (hud.textContent.startsWith('Click')) showHud()
   // Arrow keys rotate. Right-handed scene: Babylon's mouse input flips yaw, so ← = +rotation.y.
   // Pitch clamped just short of straight up/down (same limit as Babylon's mouse input).
   const t = C.turnSpeed * dt
@@ -681,7 +689,6 @@ engine.runRenderLoop(() => {
     -1.55,
     Math.min(1.55, camera.rotation.x + axis('ArrowDown', 'ArrowUp') * t),
   )
-  // Keys move with or without pointer lock (page just needs focus: click it once).
   if (mode === 'fly') {
     camera.position.addInPlaceFromFloats(...moveDelta(dt, fwd))
   } else {
