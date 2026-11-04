@@ -1,27 +1,24 @@
-> Everything known is documented in `project-notes-001.md`, but the information and the processes are messed up. Before doing anything, discuss with the user and decide what needs to be done for each part.
+# Super Craft
 
-# Super Craft: session rules
+A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `babylon-001/` ("baby", Babylon.js).
 
 ## Code word
-1. Start every reply with exactly "λ" followed by a space. If a reply lacks it, the chat is losing track: suggest `/amhandoff`.
+1. Start every reply with "λ" and a space. If a reply lacks it, the chat is losing track: suggest `/amhandoff`.
 
-## Resume work
-2. Read `handoff-super-craft-001.md` (latest handoff) before doing anything else.
-
-## Startup steps (fresh cloud container; check each before running, skip if already done)
-3. Install pnpm: `curl -fsSL https://get.pnpm.io | sh -`
-4. Make pnpm visible to this shell: `ln -sf ~/.local/share/pnpm/bin/pnpm ~/.local/bin/pnpm`
-5. Install Node LTS: `pnpm runtime set node lts -g`
-6. Make Node visible: `ln -sf ~/.local/share/pnpm/bin/node ~/.local/bin/node`
-7. Verify: `pnpm -v` (expect 12.16.1) and `node -v` (expect v26.13.0)
-8. Install deps: `cd three-001 && pnpm install`, then `cd babylon-001 && pnpm install`
+## Setup (new cloud container; check each step, skip if already done)
+2. Install pnpm: `curl -fsSL https://get.pnpm.io | sh -`
+3. Make pnpm visible to Claude's shell: `ln -sf ~/.local/share/pnpm/bin/pnpm ~/.local/bin/pnpm`
+4. Install Node LTS: `pnpm runtime set node lts -g`
+5. Make Node visible: `ln -sf ~/.local/share/pnpm/bin/node ~/.local/bin/node`
+6. Verify: `pnpm -v` should print 12.16.1 and `node -v` should print v26.13.0.
+7. Install deps: run `pnpm install` in `three-001/`, then in `babylon-001/`.
 
 ## Rules
-9. Talk first, act only on approval. One question at a time, always with a recommendation.
-10. Check first before running anything. Report output plainly, never hide failures.
-11. Always work on `main`. Rebase only, never merge.
-12. LF line endings only.
-13. Two fully independent apps: `three-001/` (tre) and `babylon-001/` (baby). Keep `PARAMS` identical in both `src/main.ts`; use equivalent APIs; borrow better tech from each other. No master app.
-14. All dependencies pinned exact, always latest.
-15. Stamp every screenshot "tre" or "baby".
-16. Numbered lists only; numbering restarts each reply. Short replies, no essays.
+8. Talk first; act only on approval. Ask one question at a time, always with a recommendation.
+9. Check before running anything. Report output plainly; never hide failures.
+10. Work on `main` only. Rebase, never merge.
+11. LF line endings only.
+12. The two apps are fully independent: no shared code, no master app. Keep `PARAMS` identical in both `src/main.ts`, use equivalent APIs, and borrow better tech from each other.
+13. Pin every dependency to an exact version, always the latest.
+14. Stamp every screenshot "tre" or "baby".
+15. Short replies. Numbered lists only; numbering restarts each reply.
