@@ -33,6 +33,7 @@ const PARAMS = {
     position: [40, 34, 40],
     target: [0, 10, 0],
     lookSpeed: 0.001, // radians per mouse pixel (pointer lock)
+    turnSpeed: 1.8, // arrow keys: radians per second (←→ turn, ↑↓ look up/down); works without pointer lock
     wheelStep: 1.5, // blocks moved along the view direction per mouse-wheel notch (zoom)
     eyeHeight: 1.7, // R reset: stand on the ground nearest the chunk center (inside the forest)
     clearView: 6, // R reset: blocks of open air required ahead at eye level, so you don't face a leaf wall
@@ -45,7 +46,7 @@ const PARAMS = {
   walk: {
     speed: 7, // blocks per second
     sprint: 2, // speed × this while Shift is held (walk mode; Shift = down in fly mode)
-    stepHeight: 1, // auto-step: walk up rises this high without jumping (on ground only)
+    stepHeight: 1, // auto-jump: walking into a rise this high triggers a jump (on ground only)
     gravity: 28,
     jumpSpeed: 9,
     height: 1.8,
@@ -585,10 +586,11 @@ const bodyHits = (p: Vector3) => {
 }
 // Move the camera by d with collision, in sub-steps ≤ 0.4 blocks so fast moves can't tunnel.
 // Anti-stuck: a move is only undone if it CREATES an overlap (if you're already inside a block, e.g. after
-// F from fly mode, you can walk out). Auto-step: with canStep, a blocked x/z move retries 1 block higher
-// (walk up 1-block rises without jumping). Returns which axes were blocked.
-const moveCollide = (d: readonly number[], canStep = false) => {
+// F from fly mode, you can walk out). Auto-jump check: when an x/z move is blocked but would fit 1 block
+// higher, `climbable` is set and the caller jumps (a real arc, no teleport). Returns blocked axes + climbable.
+const moveCollide = (d: readonly number[]) => {
   const blocked = [false, false, false]
+  let climbable = false
   const steps = Math.ceil(Math.max(...d.map(Math.abs)) / 0.4) || 1
   const p = camera.position
   for (let s = 0; s < steps; s++)
@@ -598,15 +600,15 @@ const moveCollide = (d: readonly number[], canStep = false) => {
       const wasInside = bodyHits(p)
       p[key] += d[a] / steps
       if (wasInside || !bodyHits(p)) continue
-      if (canStep && a !== 1) {
+      if (a !== 1) {
         p.y += W.stepHeight
-        if (!bodyHits(p)) continue // stepped up
+        climbable ||= !bodyHits(p)
         p.y -= W.stepHeight
       }
       p[key] = before
       blocked[a] = true
     }
-  return blocked
+  return { blocked, climbable }
 }
 const hud = document.createElement('div') // mode + key help under the app label
 hud.style.cssText =
@@ -618,7 +620,7 @@ const setMode = (m: typeof mode) => {
   showHud()
 }
 const showHud = () =>
-  (hud.textContent = `${mode} · speed ×${boost.toFixed(2)} (+/-) · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
+  (hud.textContent = `${mode} · speed ×${boost.toFixed(2)} (+/-) · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
 setMode(mode)
 // R = reset pose on the forest floor, in walk mode (↔ three position.set + lookAt)
 const resetPose = () => {
@@ -671,20 +673,30 @@ window.addEventListener('resize', () => engine.resize())
 engine.runRenderLoop(() => {
   const dt = frameDt()
   const fwd = camera.getTarget().subtract(camera.position)
+  // Arrow keys rotate. Right-handed scene: Babylon's mouse input flips yaw, so ← = +rotation.y.
+  // Pitch clamped just short of straight up/down (same limit as Babylon's mouse input).
+  const t = C.turnSpeed * dt
+  camera.rotation.y += axis('ArrowLeft', 'ArrowRight') * t
+  camera.rotation.x = Math.max(
+    -1.55,
+    Math.min(1.55, camera.rotation.x + axis('ArrowDown', 'ArrowUp') * t),
+  )
+  // Keys move with or without pointer lock (page just needs focus: click it once).
   if (mode === 'fly') {
-    if (engine.isPointerLock)
-      camera.position.addInPlaceFromFloats(...moveDelta(dt, fwd))
+    camera.position.addInPlaceFromFloats(...moveDelta(dt, fwd))
   } else {
-    // Walk: horizontal from WASD at walk speed (only while locked), vertical from gravity/jump.
-    const [dx, , dz] = engine.isPointerLock ? moveDelta(dt, fwd) : [0, 0, 0]
+    // Walk: horizontal from WASD at walk speed, vertical from gravity/jump.
+    const [dx, , dz] = moveDelta(dt, fwd)
     const k =
       (W.speed * (keys.has('ShiftLeft') ? W.sprint : 1)) /
       PARAMS.camera.moveSpeed
-    if (onGround && engine.isPointerLock && keys.has('Space')) vy = W.jumpSpeed
+    if (onGround && keys.has('Space')) vy = W.jumpSpeed
     vy -= W.gravity * dt
-    const blocked = moveCollide([dx * k, vy * dt, dz * k], onGround)
-    onGround = blocked[1] && vy < 0
+    const { blocked, climbable } = moveCollide([dx * k, vy * dt, dz * k])
+    const landed = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
+    if (landed && climbable) vy = W.jumpSpeed // auto-jump onto 1-block rises
+    onGround = landed
     if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
   }
   scene.render()
