@@ -99,7 +99,7 @@ const PARAMS = {
   // trees: oak. Per column (inside margin) roll `chance`; skip if another tree within minSpacing (Chebyshev).
   trees: {
     seed: 'trees-001',
-    chance: 0, // TEMP: trees off to debug walking (was 0.03)
+    chance: 0.03,
     minSpacing: 4,
     minTrunk: 4,
     maxTrunk: 6,
