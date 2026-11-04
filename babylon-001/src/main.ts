@@ -730,7 +730,8 @@ const placeAt = (x: number, y: number, z: number, t: BlockType | null) => {
   grid[i] = edits[i] = t ? BLOCK_TYPES.indexOf(t) + 1 : 0
 }
 canvas.addEventListener('contextmenu', (e) => e.preventDefault())
-canvas.addEventListener('mousedown', (e) => {
+// pointerdown, not mousedown: Babylon preventDefaults pointerdown, which suppresses mousedown.
+canvas.addEventListener('pointerdown', (e) => {
   if (!engine.isPointerLock && !freeMouse) return // first click only captures the mouse
   const a = aimed()
   if (!a) return
