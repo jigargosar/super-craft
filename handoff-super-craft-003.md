@@ -84,7 +84,7 @@ Said in chat:
 | Go-to-top climb: push from ground starts `climbDir`; rise 10 b/s until body fits `climbNudge` 0.35 ahead, then step on; continues after W release | user's rule, verified by headless tap test |
 | Block raycast: `fast-voxel-raycast` 0.1.1 | established lib over hand-written DDA |
 | Save: localStorage key `super-craft-bab-001` (edits, pos, rot, mode, boost, look) | user: "across refresh nothing is saved" |
-| Buttons top-right: 🖱 Free mouse, ↻ Reload, ⟲ New world | user: "refresh button is there?" (menus too painful) |
+| Buttons top-right: ↻ Reload, ⟲ New world (Free mouse removed in b1c648d) | user: "refresh button is there?" (menus too painful) |
 | App label top-left in index.html ("tre · Three.js" / "bab · Babylon.js") | user asked |
 
 ## 7. Changed / rejected
@@ -96,6 +96,7 @@ Said in chat:
 - ❌ block-grid hash now (later maybe)
 - ❌ reference files from old project (forget them)
 - ❌ URL params for the user
+- ❌ 🖱 Free mouse button (user: "why do we need free mouse"; removed; `?test` stays for Claude only)
 - (from #2) ❌ npm workspaces, Kenney pack, bumping existing deps, LF/rebase rules, shared core, pnpm, postinstall
 
 ## 8. Data & facts (exact)
@@ -108,8 +109,8 @@ Said in chat:
 | simplex-noise / seedrandom | 4.0.3 / 3.0.5 |
 | typescript / vite / concurrently | 7.0.2 / 8.3.5 / 10.0.6 |
 | tre preview | https://claude.ai/artifact/LjNEWmXjpw4ioCcD1QcrDb (v11) |
-| bab preview | https://claude.ai/artifact/6VKqC5eoPHUeyQe5CxsyLJ (v32) |
-| Latest commit | cc08032 (main, pushed) |
+| bab preview | https://claude.ai/artifact/6VKqC5eoPHUeyQe5CxsyLJ (v33) |
+| Latest commit | b1c648d (main, pushed) |
 | World fingerprint (trees on, both apps) | world {"trees":20,"grass":1002,"dirt":430,"stone":1076,"log":64,"leaves":878} |
 
 bab PARAMS (current):
@@ -138,6 +139,7 @@ Publish recipe: `npx vite build --base=./` in app dir, then Artifact publish `fi
 | CLAUDE.md | rules 1-12 + Parity gaps + Next | repo root | Next list stale: biome `[.]` done but unticked; controls not listed |
 | Biome chunk (both) | done | 8f6ed78 / b1703d5 | trees TEMP off in bab |
 | bab walk/fly/climb | working, tap-tested | 9daff5d, cc08032 | lost quick taps fixed in cc08032 (`tapped` set holds a key for ≥1 frame); post-fix headless test could not complete (headless runs at ~7 fps and kept timing out) |
+| bab smooth turning | fix shipped, unconfirmed | b1c648d | `scene.skipPointerMovePicking = true` (Babylon picked thousands of instances on every mouse move) + DOM text/background written only when changed. No code ever restricted turning during jump/climb |
 | bab position readout | built | cc08032 | top-left 3rd line: fps, x, y (feet), z, ground/climbing; for diagnosing jerky look |
 | bab break/place | built, untested by Claude (needs pointer lock) | 4a2d71c | user hasn't confirmed |
 | bab save + buttons | built, headless-tested | c883ca6, 7b73e69 | |
@@ -145,7 +147,7 @@ Publish recipe: `npx vite build --base=./` in app dir, then Artifact publish `fi
 | handoff-super-craft-002.md | old | repo root | superseded by this file |
 
 ## 11. Next steps
-1. **Next action:** ask the user the fps shown in the readout during the jerky look, and fix the jerky mouse look during jump/climb (first: stop writing hud/pos DOM every frame).
+1. **Next action:** ask the user if turning is smooth in bab v33 (and what fps the readout shows); if still jerky, profile (shadows 2048 map, PBR, instance count) and search Babylon forum (rule 17).
 2. Clean up CLAUDE.md Next (tick the biome task; add lines: bab controls done, trees back on, hotbar 1-5, tre catch-up), ask the user which feature is `[.]`.
 3. Put trees back (`trees.chance` 0 → 0.03) once the user confirms climbing works.
 4. Then the user's chosen next feature (candidates: block hotbar, HUD FPS/XYZ/biome, clouds for bab, tre catch-up).
@@ -154,8 +156,7 @@ Publish recipe: `npx vite build --base=./` in app dir, then Artifact publish `fi
 - Does v31 climbing (single W tap) now feel right to the user? Unconfirmed.
 - Does LMB break / RMB place work for the user? Unconfirmed.
 - "Angle mismatch" the user mentioned once: never explained.
-- User: "during jump or auto jump are you restricting angular movement, because it only works in jerks or not at all!!!" — the code does NOT restrict rotation during jump/climb (camera.inertia = 0, Babylon mouse input untouched). Unverified suspicion: low FPS or per-frame HUD/readout DOM writes (`hud.style.background` and `pos.textContent` set every frame). Ask the user what fps the readout shows while it happens, then fix (e.g. only write DOM when the text changes).
-- Keep or remove the 🖱 Free mouse button? (user seemed annoyed by it; unanswered)
+- (Addressed in b1c648d, unconfirmed) User: "during jump or auto jump are you restricting angular movement, because it only works in jerks or not at all!!!" — the code does NOT restrict rotation during jump/climb (camera.inertia = 0, Babylon mouse input untouched). Unverified suspicion: low FPS or per-frame HUD/readout DOM writes (`hud.style.background` and `pos.textContent` set every frame). Ask the user what fps the readout shows while it happens, then fix (e.g. only write DOM when the text changes).
 - "New world" currently resets to the same seed; user asked "new world does what" — random seed wanted? Unanswered.
 
 ## 13. Re-attach checklist
