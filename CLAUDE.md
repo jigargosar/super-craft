@@ -2,20 +2,18 @@
 
 A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `babylon-001/` ("bab", Babylon.js).
 
-## Code word
-1. Start every reply with "λ" and a space. If a reply lacks it, the chat is losing track: suggest `/amhandoff`.
-
-## Setup
-2. Use the machine's own Node (22.12 or newer) and npm. No pnpm.
-3. Install deps: run `npm install` in `three-001/`, then in `babylon-001/`.
-
 ## Rules
-4. Talk first; act only on approval. Ask one question at a time, always with a recommendation.
-5. Check before running anything. Report output plainly; never hide failures.
-6. Work on `main` only. Rebase, never merge.
-7. LF line endings only.
-8. tre and bab are fully independent: no shared code, no master app. They borrow better tech from each other.
-9. Parity check: after any change, confirm both apps still match in settings and behavior, using equivalent APIs (e.g. the identical `PARAMS` block).
-10. Pin every dependency to an exact version, always the latest.
-11. Stamp every screenshot "tre" or "bab".
-12. Short replies. Numbered lists only; numbering restarts each reply.
+1. Start every reply with "λ" and a space. If a reply lacks it, the chat is losing track: suggest `/amhandoff`.
+2. Talk first; act only on approval. Ask one question at a time, always with a recommendation.
+3. Check before running anything. Report output plainly; never hide failures.
+4. Work on `main` only.
+5. tre and bab are fully independent: no shared code, no master app. They borrow better tech from each other.
+6. Parity check: after any change, confirm both apps still match in settings and behavior, using equivalent APIs (e.g. the identical `PARAMS` block).
+7. New dependencies: pin an exact version, the latest. Leave existing ones unless an update is needed.
+8. Stamp every screenshot "tre" or "bab".
+9. Short replies.
+
+## Next (remove each line when done)
+10. Clouds for bab: try `CloudProceduralTexture` (tre's sky already has clouds).
+11. Parity check tre vs bab with stamped screenshots; republish both preview artifacts.
+12. Spike: Babylon atmosphere addon for an HDR sky.
