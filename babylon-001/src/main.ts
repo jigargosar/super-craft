@@ -23,6 +23,8 @@ import '@babylonjs/core/Meshes/thinInstanceMesh' // side-effect: enables thin in
 import { SkyMaterial } from '@babylonjs/materials/sky/skyMaterial'
 import { createNoise2D, createNoise4D } from 'simplex-noise'
 import seedrandom from 'seedrandom'
+import raycast from 'fast-voxel-raycast' // voxel DDA ray walk (used by the noa engine)
+import type { Mesh } from '@babylonjs/core/Meshes/mesh'
 
 // --- PARAMS (keep identical in both apps) ---
 const PARAMS = {
@@ -41,6 +43,8 @@ const PARAMS = {
     boostStep: 1.5, // +/- keys multiply/divide all move speeds by this (both modes), clamped to boostRange
     boostRange: [0.25, 8],
   },
+  // edit: block breaking/placing. reach = max ray length in blocks; place = block type right click puts down.
+  edit: { reach: 6, place: 'dirt' as BlockType },
   // walk: player physics (bab-only for now). Body = box radius×2 wide, `height` tall; eyes at camera.eyeHeight.
   // Jump apex = jumpSpeed² / (2 × gravity) ≈ 1.45 blocks, enough to climb one block.
   walk: {
@@ -310,25 +314,30 @@ const NEIGHBORS = [
   [0, 0, 1],
   [0, 0, -1],
 ]
-const blocks = Object.fromEntries(
-  BLOCK_TYPES.map((t) => [t, []]),
-) as unknown as Record<BlockType, [number, number, number][]>
-for (let y = 0; y < K.maxHeight; y++)
-  for (let z = 0; z < K.size; z++)
-    for (let x = 0; x < K.size; x++) {
-      const id = get(x, y, z)
-      if (
-        id === 0 ||
-        NEIGHBORS.every(([dx, dy, dz]) => solid(x + dx, y + dy, z + dz))
-      )
-        continue
-      // Chunk centered on the origin in x/z, sitting on y=0.
-      blocks[BLOCK_TYPES[id - 1]].push([
-        x - K.size / 2 + 0.5,
-        y + 0.5,
-        z - K.size / 2 + 0.5,
-      ])
-    }
+// Recomputed after every block edit (49k cells, a few ms).
+const visibleBlocks = () => {
+  const blocks = Object.fromEntries(
+    BLOCK_TYPES.map((t) => [t, []]),
+  ) as unknown as Record<BlockType, [number, number, number][]>
+  for (let y = 0; y < K.maxHeight; y++)
+    for (let z = 0; z < K.size; z++)
+      for (let x = 0; x < K.size; x++) {
+        const id = get(x, y, z)
+        if (
+          id === 0 ||
+          NEIGHBORS.every(([dx, dy, dz]) => solid(x + dx, y + dy, z + dz))
+        )
+          continue
+        // Chunk centered on the origin in x/z, sitting on y=0.
+        blocks[BLOCK_TYPES[id - 1]].push([
+          x - K.size / 2 + 0.5,
+          y + 0.5,
+          z - K.size / 2 + 0.5,
+        ])
+      }
+  return blocks
+}
+const blocks = visibleBlocks()
 // Parity fingerprint: both apps must log identical numbers.
 console.log(
   'world',
@@ -489,6 +498,7 @@ const FS = PARAMS.faceShade
 const faceColors = [FS.z, FS.z, FS.x, FS.x, FS.top, FS.bottom].map(
   (v) => new Color4(v, v, v, 1),
 )
+const meshes = {} as Record<BlockType, Mesh>
 for (const [type, list] of Object.entries(blocks) as [
   BlockType,
   [number, number, number][],
@@ -499,9 +509,21 @@ for (const [type, list] of Object.entries(blocks) as [
     scene,
   )
   mesh.material = blockMat
-  mesh.thinInstanceAdd(list.map((p) => Matrix.Translation(...p)))
+  meshes[type] = mesh
   mesh.receiveShadows = true
   shadows.addShadowCaster(mesh)
+  setInstances(type, list)
+}
+// Replace a block type's thin instances with these positions (one 4x4 matrix each).
+function setInstances(type: BlockType, list: [number, number, number][]) {
+  const buf = new Float32Array(list.length * 16)
+  list.forEach((p, i) => Matrix.Translation(...p).copyToArray(buf, i * 16))
+  meshes[type].thinInstanceSetBuffer('matrix', buf, 16, false)
+  meshes[type].isVisible = list.length > 0 // 0 instances would draw the bare box at the origin
+}
+const rebuildChunk = () => {
+  const b = visibleBlocks()
+  BLOCK_TYPES.forEach((t) => setInstances(t, b[t]))
 }
 
 // --- Fly movement (identical in both apps): WASD on the horizontal plane, Space up, Shift down, R reset.
@@ -622,7 +644,7 @@ const setMode = (m: typeof mode) => {
   showHud()
 }
 const showHud = () =>
-  (hud.textContent = `${mode} · speed ×${boost.toFixed(2)} (+/-) · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
+  (hud.textContent = `${mode} · speed ×${boost.toFixed(2)} (+/-) · LMB break · RMB place · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
 setMode(mode)
 // R = reset pose on the forest floor, in walk mode (↔ three position.set + lookAt)
 const resetPose = () => {
@@ -640,6 +662,47 @@ addEventListener('wheel', (e) => {
     .scale(wheelDistance(e))
   if (mode === 'walk') moveCollide([d.x, d.y, d.z])
   else camera.position.addInPlace(d)
+})
+// --- Break / place blocks (while the mouse is captured): left click breaks the block under the crosshair,
+// right click places PARAMS.edit.place on the face you're looking at. Ray in grid coords (x/z offset by size/2).
+const aimed = () => {
+  let cell: number[] | null = null
+  const normal = [0, 0, 0]
+  const p = camera.position
+  const dir = camera.getTarget().subtract(p).normalize()
+  const hit = raycast(
+    (x, y, z) => {
+      const id = get(x, y, z)
+      if (id) cell = [x, y, z]
+      return id
+    },
+    [p.x + K.size / 2, p.y, p.z + K.size / 2],
+    [dir.x, dir.y, dir.z],
+    PARAMS.edit.reach,
+    [0, 0, 0],
+    normal,
+  )
+  return hit && cell ? { cell: cell as number[], normal } : null
+}
+const placeAt = (x: number, y: number, z: number, t: BlockType | null) => {
+  if (!inside(x, y, z)) return
+  grid[idx(x, y, z)] = t ? BLOCK_TYPES.indexOf(t) + 1 : 0
+}
+canvas.addEventListener('contextmenu', (e) => e.preventDefault())
+canvas.addEventListener('mousedown', (e) => {
+  if (!engine.isPointerLock) return // first click only captures the mouse
+  const a = aimed()
+  if (!a) return
+  const [x, y, z] = a.cell
+  if (e.button === 0) placeAt(x, y, z, null)
+  else if (e.button === 2) {
+    const [nx, ny, nz] = [x + a.normal[0], y + a.normal[1], z + a.normal[2]]
+    if (get(nx, ny, nz) !== 0) return
+    placeAt(nx, ny, nz, PARAMS.edit.place)
+    if (mode === 'walk' && bodyHits(camera.position))
+      return placeAt(nx, ny, nz, null) // not inside yourself
+  } else return
+  rebuildChunk()
 })
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') resetPose()
