@@ -532,7 +532,10 @@ const rebuildChunk = () => {
 // --- Fly movement (identical in both apps): WASD on the horizontal plane, Space up, Shift down, R reset.
 //     fwd = camera look direction; returns the position delta for this frame. ---
 const keys = new Set<string>()
-addEventListener('keydown', (e) => keys.add(e.code))
+// `tapped` keeps a key "down" until one frame has used it, so a quick tap (press+release between two
+// frames) still moves you / starts a climb instead of being lost.
+const tapped = new Set<string>()
+addEventListener('keydown', (e) => (keys.add(e.code), tapped.add(e.code)))
 addEventListener('keyup', (e) => keys.delete(e.code))
 // R reset target (identical in both apps): stand ON THE GROUND inside the forest. Scan columns in rings out
 // from the chunk center; take the first with 2 air blocks above its terrain (body fits) and a direction
@@ -736,7 +739,8 @@ addEventListener('keydown', (e) => {
   if (step || lstep) (showHud(), save())
 })
 const axis = (pos: string, neg: string) =>
-  (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0)
+  (keys.has(pos) || tapped.has(pos) ? 1 : 0) -
+  (keys.has(neg) || tapped.has(neg) ? 1 : 0)
 const moveDelta = (dt: number, fwd: { x: number; z: number }) => {
   const s = PARAMS.camera.moveSpeed * boost * dt
   const len = Math.hypot(fwd.x, fwd.z) || 1
@@ -759,7 +763,18 @@ window.addEventListener('resize', () => engine.resize())
 // Free mouse (button top-right, or ?test for headless tests): controls run without capturing the mouse.
 // Turn with arrow keys or by dragging. window.__bab exposes the camera for scripts.
 let freeMouse = new URLSearchParams(location.search).has('test')
-Object.assign(window, { __bab: { camera } })
+Object.assign(window, {
+  __bab: {
+    camera,
+    state: () => ({
+      onGround,
+      climbDir,
+      vy,
+      mode,
+      hit: bodyHits(camera.position),
+    }),
+  },
+})
 const pos = document.createElement('div') // live position readout under the HUD (manual testing)
 pos.style.cssText =
   'position:fixed;top:62px;left:8px;padding:2px 8px;background:#0008;color:#fff;font:12px ui-monospace,monospace;border-radius:4px;pointer-events:none'
@@ -770,7 +785,7 @@ engine.runRenderLoop(() => {
   // HUD prompts to click while the mouse is free; all controls run only while captured (pointer lock).
   const locked = engine.isPointerLock || freeMouse
   const c = camera.position
-  pos.textContent = `x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`
+  pos.textContent = `${engine.getFps().toFixed(0)} fps  x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`
   hud.style.background = locked ? '#0008' : '#b00c'
   if (!locked) {
     hud.textContent = 'Click the view to capture the mouse (Esc releases it)'
@@ -794,7 +809,7 @@ engine.runRenderLoop(() => {
     const k =
       (W.speed * (keys.has('ShiftLeft') ? W.sprint : 1)) /
       PARAMS.camera.moveSpeed
-    if (onGround && keys.has('Space')) vy = W.jumpSpeed
+    if (onGround && (keys.has('Space') || tapped.has('Space'))) vy = W.jumpSpeed
     if (!climbDir) vy -= W.gravity * dt
     const wasOnGround = onGround
     const { blocked, wall } = moveCollide([dx * k, vy * dt, dz * k])
@@ -826,6 +841,7 @@ engine.runRenderLoop(() => {
     }
     if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
   }
+  tapped.clear()
   scene.render()
 })
 
