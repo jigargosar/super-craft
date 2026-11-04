@@ -17,7 +17,7 @@ import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial'
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture'
 import { Texture } from '@babylonjs/core/Materials/Textures/texture'
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration'
-import { Color3 } from '@babylonjs/core/Maths/math.color'
+import { Color3, Color4 } from '@babylonjs/core/Maths/math.color'
 import { Matrix, Vector3, Vector4 } from '@babylonjs/core/Maths/math.vector'
 import '@babylonjs/core/Meshes/thinInstanceMesh' // side-effect: enables thin instances
 import { SkyMaterial } from '@babylonjs/materials/sky/skyMaterial'
@@ -70,6 +70,8 @@ const PARAMS = {
     roughness: 1,
     metalness: 0,
   },
+  // faceShade: fixed brightness per face direction (classic voxel look; sides differ so edges read)
+  faceShade: { top: 1, z: 0.8, x: 0.62, bottom: 0.5 },
   // texture: 16x16 pixel-art tiles in one atlas. Each pixel = palette[i], where i comes from
   // seamless simplex noise (clumps; `scale` = clump frequency) mixed with `grain` of per-pixel random.
   // Palettes run dark → light. grassSide = dirt with a ragged grass overhang of minRows..maxRows per column.
@@ -331,13 +333,18 @@ const FACE_TILES: Record<BlockType, (typeof TILES)[number][]> = {
   dirt: Array(6).fill('dirt'),
   stone: Array(6).fill('stone'),
 }
+// faceColors = per-face vertex colors, multiplied into albedo (same face order as faceUV).
+const FS = PARAMS.faceShade
+const faceColors = [FS.z, FS.z, FS.x, FS.x, FS.top, FS.bottom].map(
+  (v) => new Color4(v, v, v, 1),
+)
 for (const [type, list] of Object.entries(blocks) as [
   BlockType,
   [number, number, number][],
 ][]) {
   const mesh = CreateBox(
     type,
-    { size: 1, wrap: true, faceUV: FACE_TILES[type].map(uv) },
+    { size: 1, wrap: true, faceUV: FACE_TILES[type].map(uv), faceColors },
     scene,
   )
   mesh.material = blockMat
