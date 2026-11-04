@@ -109,7 +109,7 @@ Said in chat:
 | simplex-noise / seedrandom | 4.0.3 / 3.0.5 |
 | typescript / vite / concurrently | 7.0.2 / 8.3.5 / 10.0.6 |
 | tre preview | https://claude.ai/artifact/LjNEWmXjpw4ioCcD1QcrDb (v11) |
-| bab preview | https://claude.ai/artifact/6VKqC5eoPHUeyQe5CxsyLJ (v34) |
+| bab preview | https://claude.ai/artifact/6VKqC5eoPHUeyQe5CxsyLJ (v35, build 728f99a) |
 | Latest commit | see `git log` (after b1c648d: own mouse look commit) |
 | World fingerprint (trees on, both apps) | world {"trees":20,"grass":1002,"dirt":430,"stone":1076,"log":64,"leaves":878} |
 
@@ -126,7 +126,7 @@ bab controls: click view = capture mouse (Esc releases); WASD; Space jump (walk)
 
 Headless test recipe (Claude only): `vite build --base=./`, `vite preview --port 4302 --strictPort`, Playwright with `NODE_PATH=/opt/node22/lib/node_modules`, args `--use-angle=swiftshader --enable-unsafe-swiftshader --ignore-gpu-blocklist`, open `/?test`, read `window.__bab.camera.position`. Avoid ports 4101/4102 if anything else runs. tre screenshots often time out.
 
-Publish recipe: `npx vite build --base=./` in app dir, then Artifact publish `file_path` `<app>/dist/index.html`, `root` `<app>/dist`, `files` = changed `assets/index-*.js`.
+Publish recipe (bab): commit first, then `VITE_BUILD="$(git rev-parse --short HEAD) $(date -u +%H:%M) UTC" npx vite build --base=./` in app dir (stamp shows in the readout line), then Artifact publish `file_path` `<app>/dist/index.html`, `root` `<app>/dist`, `files` = changed `assets/index-*.js`.
 
 ## 9. People, terms & names
 - **People:** Jigar Gosar (user, repo owner).
@@ -147,7 +147,7 @@ Publish recipe: `npx vite build --base=./` in app dir, then Artifact publish `fi
 | handoff-super-craft-002.md | old | repo root | superseded by this file |
 
 ## 11. Next steps
-1. **Next action:** ask the user if turning is smooth in bab v34 (and what fps the readout shows); if still jerky, profile (shadows 2048 map, PBR, instance count) and search Babylon forum (rule 17).
+1. **Next action:** ask whether the artifact auto-refreshed to build 728f99a; then clean up CLAUDE.md Next and ask which feature is `[.]`.
 2. Clean up CLAUDE.md Next (tick the biome task; add lines: bab controls done, trees back on, hotbar 1-5, tre catch-up), ask the user which feature is `[.]`.
 3. Put trees back (`trees.chance` 0 → 0.03) once the user confirms climbing works.
 4. Then the user's chosen next feature (candidates: block hotbar, HUD FPS/XYZ/biome, clouds for bab, tre catch-up).
@@ -155,6 +155,8 @@ Publish recipe: `npx vite build --base=./` in app dir, then Artifact publish `fi
 ## 12. Open questions ⚠️
 - Does v31 climbing (single W tap) now feel right to the user? Unconfirmed.
 - Does LMB break / RMB place work for the user? Unconfirmed.
+- Turning jerky while W held = Windows touchpad palm rejection (SOLVED by user: Touchpad sensitivity → Most sensitive). Not an app bug.
+- Does the open artifact auto-refresh on republish? Unknown; user will check via the build stamp.
 - "Angle mismatch" the user mentioned once: never explained.
 - (Addressed in b1c648d, unconfirmed) User: "during jump or auto jump are you restricting angular movement, because it only works in jerks or not at all!!!" — the code does NOT restrict rotation during jump/climb (camera.inertia = 0, Babylon mouse input untouched). Unverified suspicion: low FPS or per-frame HUD/readout DOM writes (`hud.style.background` and `pos.textContent` set every frame). Ask the user what fps the readout shows while it happens, then fix (e.g. only write DOM when the text changes).
 - "New world" currently resets to the same seed; user asked "new world does what" — random seed wanted? Unanswered.
