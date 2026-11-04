@@ -34,7 +34,8 @@ const PARAMS = {
     target: [0, 10, 0],
     lookSpeed: 0.001, // radians per mouse pixel (pointer lock)
     wheelStep: 1.5, // blocks moved along the view direction per mouse-wheel notch (zoom)
-    eyeHeight: 1.7, // R reset: stand on the ground nearest the chunk center (inside the forest), facing -z
+    eyeHeight: 1.7, // R reset: stand on the ground nearest the chunk center (inside the forest)
+    clearView: 6, // R reset: blocks of open air required ahead at eye level, so you don't face a leaf wall
     moveSpeed: 8, // blocks per second (WASD, Space up, Shift down)
   },
   sun: {
@@ -493,32 +494,47 @@ for (const [type, list] of Object.entries(blocks) as [
 const keys = new Set<string>()
 addEventListener('keydown', (e) => keys.add(e.code))
 addEventListener('keyup', (e) => keys.delete(e.code))
-// R reset target (identical in both apps): stand ON THE GROUND inside the forest. Pick the column nearest
-// the chunk center whose terrain top has 2 blocks of air above it (no trunk/leaves at body height).
+// R reset target (identical in both apps): stand ON THE GROUND inside the forest. Scan columns in rings out
+// from the chunk center; take the first with 2 air blocks above its terrain (body fits) and a direction
+// (-z, +x, +z, -x) with `clearView` air blocks ahead at eye level. Returns [x, y, z, lookDx, lookDz].
 const centerEye = () => {
   const c = K.size / 2
-  const free = (x: number, z: number) =>
+  const DIRS = [
+    [0, -1],
+    [1, 0],
+    [0, 1],
+    [-1, 0],
+  ]
+  const fits = (x: number, z: number) =>
     get(x, heights[x][z], z) === 0 && get(x, heights[x][z] + 1, z) === 0
-  let best = [c, c]
-  for (let r = 0; r < K.size && !free(best[0], best[1]); r++)
+  const clear = (x: number, z: number, [dx, dz]: number[]) => {
+    for (let s = 1; s <= C.clearView; s++)
+      if (get(x + dx * s, heights[x][z] + 1, z + dz * s) !== 0) return false
+    return true
+  }
+  for (let r = 0; r < K.size; r++)
     for (let x = c - r; x <= c + r; x++)
-      for (let z = c - r; z <= c + r; z++)
-        if (inside(x, 0, z) && free(x, z) && !free(best[0], best[1]))
-          best = [x, z]
-  const [x, z] = best
-  return [
-    x - K.size / 2 + 0.5,
-    heights[x][z] + C.eyeHeight,
-    z - K.size / 2 + 0.5,
-  ] as const
+      for (let z = c - r; z <= c + r; z++) {
+        if (!inside(x, 0, z) || !fits(x, z)) continue
+        const dir = DIRS.find((d) => clear(x, z, d))
+        if (dir)
+          return [
+            x - K.size / 2 + 0.5,
+            heights[x][z] + C.eyeHeight,
+            z - K.size / 2 + 0.5,
+            dir[0],
+            dir[1],
+          ] as const
+      }
+  return [0, K.maxHeight, 0, 0, -1] as const // no spot found: above the chunk
 }
 // Mouse wheel = zoom: dolly along the view direction (identical in both apps). Returns blocks to move.
 const wheelDistance = (e: WheelEvent) => -Math.sign(e.deltaY) * C.wheelStep
 // R = reset pose (↔ three position.set + lookAt)
 const resetPose = () => {
-  const [x, y, z] = centerEye()
+  const [x, y, z, dx, dz] = centerEye()
   camera.position = new Vector3(x, y, z)
-  camera.setTarget(new Vector3(x, y, z - 1))
+  camera.setTarget(new Vector3(x + dx, y, z + dz))
 }
 // ↔ three: same wheel listener, direction from getWorldDirection
 addEventListener('wheel', (e) =>
