@@ -1,4 +1,4 @@
-// three-001 scene: one plains chunk (16x16 blocks) + sky + hemisphere/ambient/sun lights.
+// three-001 scene: one forest-edge plains chunk (32x32 blocks, trees) + sky + hemisphere/ambient/sun lights.
 // PARITY: babylon-001/src/main.ts mirrors this file. PARAMS match except gaps listed in CLAUDE.md "Parity gaps";
 // change a value in one, change it in the other. API pairs are noted per section.
 // Renderer: WebGLRenderer (Sky addon is WebGL-only; WebGPU uses SkyMesh instead).
@@ -15,8 +15,8 @@ const PARAMS = {
     fovDeg: 70,
     near: 0.1,
     far: 2000,
-    position: [18, 16, 18],
-    target: [0, 4, 0],
+    position: [40, 34, 40],
+    target: [0, 10, 0],
     lookSpeed: 0.002, // radians per mouse pixel (pointer lock)
     moveSpeed: 8, // blocks per second (WASD, Space up, Shift down)
   },
@@ -28,7 +28,9 @@ const PARAMS = {
     shadowMapSize: 2048,
     shadowBias: 0.0005, // depth bias against shadow acne
     shadowNormalBias: 0.02, // offset along normals against acne on block faces
-    shadowExtent: 12, // half-size of the shadow box around the chunk (blocks)
+    shadowExtent: 26, // half-size of the shadow box around the chunk (blocks)
+    distance: 60, // light placed at sunDir * distance
+    shadowFar: 140, // shadow camera far plane
   },
   hemi: { sky: '#bfd8ff', ground: '#6b5a3a', intensity: 0.8 },
   ambient: { color: '#ffffff', intensity: 0.2 },
@@ -41,15 +43,27 @@ const PARAMS = {
     mieDirectionalG: 0.8,
     luminance: 0.6,
   },
-  // chunk: plains biome heightmap. height = baseHeight + amplitude * (noise + 1), noise in [-1, 1]
+  // chunk: forest-edge plains. height = baseHeight + amplitude * (fbm + 1) / 2, fbm in [-1, 1]
   chunk: {
-    size: 16,
-    maxHeight: 32,
-    seed: 'plains-001',
-    baseHeight: 3,
-    amplitude: 3,
-    noiseScale: 0.06,
+    size: 32,
+    maxHeight: 48,
+    seed: 'forest-plains-001',
+    baseHeight: 2,
+    amplitude: 20,
+    noiseScale: 0.035,
+    octaves: 4,
+    persistence: 0.5,
+    lacunarity: 2,
     dirtDepth: 3,
+  },
+  // trees: oak. Per column (inside margin) roll `chance`; skip if another tree within minSpacing (Chebyshev).
+  trees: {
+    seed: 'trees-001',
+    chance: 0.03,
+    minSpacing: 4,
+    minTrunk: 4,
+    maxTrunk: 6,
+    margin: 2,
   },
   blocks: {
     roughness: 1,
@@ -82,6 +96,24 @@ const PARAMS = {
       grassSpeckle: '#5c9e49',
       grassRows: 4,
       chance: 0.3,
+    },
+    // logSide: bark. Each column becomes a random `streaks` color with `streakChance` (vertical streaks),
+    // then speckles from `streaks`. logTop: end grain = square rings alternating `rings`, 1px `bark` rim.
+    logSide: {
+      base: '#6b4f2e',
+      streaks: ['#584026', '#7d5c36'],
+      streakChance: 0.5,
+      chance: 0.15,
+    },
+    logTop: {
+      rings: ['#a07a4a', '#8a6638'],
+      bark: '#6b4f2e',
+      chance: 0.1,
+    },
+    leaves: {
+      base: '#3f7a2a',
+      speckles: ['#356b23', '#4c8c34', '#2c5c1d'],
+      chance: 0.4,
     },
   },
 } as const
@@ -141,7 +173,7 @@ scene.add(
   new THREE.AmbientLight(PARAMS.ambient.color, PARAMS.ambient.intensity),
 )
 const sun = new THREE.DirectionalLight(PARAMS.sun.color, PARAMS.sun.intensity)
-sun.position.copy(sunDir).multiplyScalar(30)
+sun.position.copy(sunDir).multiplyScalar(PARAMS.sun.distance)
 sun.castShadow = true
 const S = PARAMS.sun
 sun.shadow.mapSize.set(S.shadowMapSize, S.shadowMapSize)
@@ -154,29 +186,90 @@ Object.assign(sun.shadow.camera, {
   top: E,
   bottom: -E,
   near: 0.5,
-  far: 60,
+  far: S.shadowFar,
 })
 scene.add(sun)
 
-// --- Chunk generation (plains). Identical code in both apps; only rendering differs. ---
-// Heightmap from seeded 2D simplex noise. Only blocks touching air are kept (hidden ones skipped).
-type BlockType = 'grass' | 'dirt' | 'stone'
+// --- World generation (biome: forest-edge plains). IDENTICAL code in both apps; only rendering differs.
+//     Terrain = fbm heightmap into a 3D grid; trees stamped on top; only blocks touching air are rendered. ---
+type BlockType = 'grass' | 'dirt' | 'stone' | 'log' | 'leaves'
+const BLOCK_TYPES: BlockType[] = ['grass', 'dirt', 'stone', 'log', 'leaves'] // grid id = index + 1; 0 = air
 const K = PARAMS.chunk
 const noise2D = createNoise2D(seedrandom(K.seed))
+// fbm: `octaves` layers of simplex, each at lacunarity× frequency and persistence× amplitude. Result in [-1, 1].
+const fbm = (x: number, z: number) => {
+  let [sum, norm, amp, freq] = [0, 0, 1, K.noiseScale]
+  for (let o = 0; o < K.octaves; o++) {
+    sum += amp * noise2D(x * freq, z * freq)
+    norm += amp
+    amp *= K.persistence
+    freq *= K.lacunarity
+  }
+  return sum / norm
+}
 const heights = Array.from({ length: K.size }, (_, x) =>
   Array.from({ length: K.size }, (_, z) =>
     Math.min(
       K.maxHeight,
-      Math.floor(
-        K.baseHeight +
-          K.amplitude * (noise2D(x * K.noiseScale, z * K.noiseScale) + 1),
-      ),
+      Math.floor(K.baseHeight + (K.amplitude * (fbm(x, z) + 1)) / 2),
     ),
   ),
 )
-// Solid if inside the heightmap. Below y=0 counts as solid so the chunk bottom is hidden; outside x/z is air.
-const solid = (x: number, y: number, z: number) =>
-  y < 0 || (x >= 0 && x < K.size && z >= 0 && z < K.size && y < heights[x][z])
+// 3D grid, x fastest. Out-of-bounds reads are air; out-of-bounds writes are ignored.
+const grid = new Uint8Array(K.size * K.size * K.maxHeight)
+const inside = (x: number, y: number, z: number) =>
+  x >= 0 && x < K.size && z >= 0 && z < K.size && y >= 0 && y < K.maxHeight
+const idx = (x: number, y: number, z: number) => (y * K.size + z) * K.size + x
+const get = (x: number, y: number, z: number) =>
+  inside(x, y, z) ? grid[idx(x, y, z)] : 0
+const set = (x: number, y: number, z: number, t: BlockType) => {
+  if (inside(x, y, z)) grid[idx(x, y, z)] = BLOCK_TYPES.indexOf(t) + 1
+}
+for (let x = 0; x < K.size; x++)
+  for (let z = 0; z < K.size; z++)
+    for (let y = 0; y < heights[x][z]; y++) {
+      const depth = heights[x][z] - 1 - y // 0 = top block
+      set(
+        x,
+        y,
+        z,
+        depth === 0 ? 'grass' : depth <= K.dirtDepth ? 'dirt' : 'stone',
+      )
+    }
+// Trees: scan x then z. RNG call order must match in both apps (trunk roll only when a tree is placed).
+const TR = PARAMS.trees
+const treeRng = seedrandom(TR.seed)
+const trees: [number, number, number][] = [] // [x, groundY, z] = first trunk block
+for (let x = TR.margin; x < K.size - TR.margin; x++)
+  for (let z = TR.margin; z < K.size - TR.margin; z++) {
+    if (treeRng() >= TR.chance) continue
+    if (
+      trees.some(
+        ([tx, , tz]) =>
+          Math.max(Math.abs(tx - x), Math.abs(tz - z)) < TR.minSpacing,
+      )
+    )
+      continue
+    const trunk =
+      TR.minTrunk + Math.floor(treeRng() * (TR.maxTrunk - TR.minTrunk + 1))
+    const y0 = heights[x][z]
+    const top = y0 + trunk - 1
+    trees.push([x, y0, z])
+    set(x, y0 - 1, z, 'dirt') // no grass under a trunk
+    // Canopy layers relative to trunk top: dy -1, 0 = radius 2; dy 1, 2 = radius 1. Corners cut except dy 1.
+    for (let dy = -1; dy <= 2; dy++) {
+      const r = dy <= 0 ? 2 : 1
+      for (let dx = -r; dx <= r; dx++)
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.abs(dx) === r && Math.abs(dz) === r && dy !== 1) continue
+          if (get(x + dx, top + dy, z + dz) === 0)
+            set(x + dx, top + dy, z + dz, 'leaves')
+        }
+    }
+    for (let y = y0; y <= top; y++) set(x, y, z, 'log') // trunk last: overwrites canopy
+  }
+// Visible blocks per type: skip blocks fully enclosed. Below y=0 counts as solid (chunk bottom hidden).
+const solid = (x: number, y: number, z: number) => y < 0 || get(x, y, z) !== 0
 const NEIGHBORS = [
   [1, 0, 0],
   [-1, 0, 0],
@@ -185,39 +278,51 @@ const NEIGHBORS = [
   [0, 0, 1],
   [0, 0, -1],
 ]
-// Block centers per type, chunk centered on the origin in x/z, sitting on y=0.
-const blocks: Record<BlockType, [number, number, number][]> = {
-  grass: [],
-  dirt: [],
-  stone: [],
-}
-for (let x = 0; x < K.size; x++)
+const blocks = Object.fromEntries(
+  BLOCK_TYPES.map((t) => [t, []]),
+) as unknown as Record<BlockType, [number, number, number][]>
+for (let y = 0; y < K.maxHeight; y++)
   for (let z = 0; z < K.size; z++)
-    for (let y = 0; y < heights[x][z]; y++) {
-      if (NEIGHBORS.every(([dx, dy, dz]) => solid(x + dx, y + dy, z + dz)))
+    for (let x = 0; x < K.size; x++) {
+      const id = get(x, y, z)
+      if (
+        id === 0 ||
+        NEIGHBORS.every(([dx, dy, dz]) => solid(x + dx, y + dy, z + dz))
+      )
         continue
-      const depth = heights[x][z] - 1 - y // 0 = top block
-      const type: BlockType =
-        depth === 0 ? 'grass' : depth <= K.dirtDepth ? 'dirt' : 'stone'
-      blocks[type].push([x - K.size / 2 + 0.5, y + 0.5, z - K.size / 2 + 0.5])
+      // Chunk centered on the origin in x/z, sitting on y=0.
+      blocks[BLOCK_TYPES[id - 1]].push([
+        x - K.size / 2 + 0.5,
+        y + 0.5,
+        z - K.size / 2 + 0.5,
+      ])
     }
+// Parity fingerprint: both apps must log identical numbers.
+console.log(
+  'world',
+  JSON.stringify({
+    trees: trees.length,
+    ...Object.fromEntries(BLOCK_TYPES.map((t) => [t, blocks[t].length])),
+  }),
+)
 
 // --- Pixel textures (identical logic in both apps; one seeded RNG, tiles drawn in a fixed order) ---
 const T = PARAMS.texture
 const rng = seedrandom(T.seed)
-// Fill a size x size canvas with `base`, then speckle pixels: speckleAt(y) picks the color per row.
+// Fill a size x size canvas with `base(y, x)` per pixel, then speckle pixels: speckleAt(y) picks the color.
 const drawTile = (
-  base: (y: number) => string,
+  base: (y: number, x: number) => string,
   chance: number,
   speckleAt: (y: number) => string,
 ) => {
   const c = document.createElement('canvas')
   c.width = c.height = T.size
   const g = c.getContext('2d')!
-  for (let y = 0; y < T.size; y++) {
-    g.fillStyle = base(y)
-    g.fillRect(0, y, T.size, 1)
-  }
+  for (let y = 0; y < T.size; y++)
+    for (let x = 0; x < T.size; x++) {
+      g.fillStyle = base(y, x)
+      g.fillRect(x, y, 1, 1)
+    }
   for (let x = 0; x < T.size; x++)
     for (let y = 0; y < T.size; y++)
       if (rng() < chance) {
@@ -234,6 +339,18 @@ const plain = (t: {
   chance: number
 }) => drawTile(() => t.base, t.chance, pick(t.speckles))
 const GS = T.grassSide
+const LS = T.logSide
+const LT = T.logTop
+// Bark streak color per column (drawn after the existing tiles so their RNG sequence is unchanged).
+const barkColumns = () =>
+  Array.from({ length: T.size }, () =>
+    rng() < LS.streakChance ? pick(LS.streaks)() : LS.base,
+  )
+// End-grain ring index: Chebyshev distance from the tile center (0 = center, size/2 - 1 = rim).
+const ring = (y: number, x: number) =>
+  Math.floor(
+    Math.max(Math.abs(x + 0.5 - T.size / 2), Math.abs(y + 0.5 - T.size / 2)),
+  )
 const tiles = {
   grassTop: plain(T.grassTop),
   dirt: plain(T.dirt),
@@ -243,6 +360,15 @@ const tiles = {
     GS.chance,
     (y) => (y < GS.grassRows ? GS.grassSpeckle : GS.speckle),
   ),
+  logSide: ((cols) =>
+    drawTile((_y, x) => cols[x], LS.chance, pick(LS.streaks)))(barkColumns()),
+  logTop: drawTile(
+    (y, x) =>
+      ring(y, x) === T.size / 2 - 1 ? LT.bark : LT.rings[ring(y, x) % 2],
+    LT.chance,
+    pick(LT.rings),
+  ),
+  leaves: plain(T.leaves),
 }
 
 // --- Materials (MeshStandardMaterial ↔ PBRMaterial): one per tile; texture carries the color.
@@ -262,6 +388,9 @@ const mat = {
   grassSide: material(tiles.grassSide),
   dirt: material(tiles.dirt),
   stone: material(tiles.stone),
+  logSide: material(tiles.logSide),
+  logTop: material(tiles.logTop),
+  leaves: material(tiles.leaves),
 }
 // BoxGeometry face order: +x, -x, +y (top), -y (bottom), +z, -z
 const faces: Record<BlockType, THREE.Material[]> = {
@@ -275,6 +404,15 @@ const faces: Record<BlockType, THREE.Material[]> = {
   ],
   dirt: Array(6).fill(mat.dirt),
   stone: Array(6).fill(mat.stone),
+  log: [
+    mat.logSide,
+    mat.logSide,
+    mat.logTop,
+    mat.logTop,
+    mat.logSide,
+    mat.logSide,
+  ],
+  leaves: Array(6).fill(mat.leaves),
 }
 
 // --- Chunk rendering: one InstancedMesh per block type (↔ babylon thin instances) ---
