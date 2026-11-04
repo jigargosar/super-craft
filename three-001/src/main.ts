@@ -17,7 +17,9 @@ const PARAMS = {
     far: 2000,
     position: [40, 34, 40],
     target: [0, 10, 0],
-    lookSpeed: 0.002, // radians per mouse pixel (pointer lock)
+    lookSpeed: 0.001, // radians per mouse pixel (pointer lock)
+    wheelStep: 1.5, // blocks moved along the view direction per mouse-wheel notch (zoom)
+    eyeHeight: 1.7, // R reset: stand at the chunk center, eyes this high above the top block, facing -z
     moveSpeed: 8, // blocks per second (WASD, Space up, Shift down)
   },
   sun: {
@@ -433,11 +435,32 @@ for (const [type, list] of Object.entries(blocks) as [
 const keys = new Set<string>()
 addEventListener('keydown', (e) => keys.add(e.code))
 addEventListener('keyup', (e) => keys.delete(e.code))
-// R = reset pose to PARAMS.camera position/target (↔ babylon position + setTarget)
-const resetPose = () => {
-  camera.position.set(...C.position)
-  camera.lookAt(...C.target)
+// R reset target (identical in both apps): center column of the chunk, eyes eyeHeight above its top block.
+const centerEye = () => {
+  const c = K.size / 2
+  let y = K.maxHeight - 1
+  while (y >= 0 && get(c, y, c) === 0) y--
+  return [
+    c - K.size / 2 + 0.5,
+    y + 1 + C.eyeHeight,
+    c - K.size / 2 + 0.5,
+  ] as const
 }
+// Mouse wheel = zoom: dolly along the view direction (identical in both apps). Returns blocks to move.
+const wheelDistance = (e: WheelEvent) => -Math.sign(e.deltaY) * C.wheelStep
+// R = reset pose (↔ babylon position + setTarget)
+const resetPose = () => {
+  const [x, y, z] = centerEye()
+  camera.position.set(x, y, z)
+  camera.lookAt(x, y, z - 1)
+}
+// ↔ babylon: same wheel listener, direction from getTarget() - position
+addEventListener('wheel', (e) =>
+  camera.position.addScaledVector(
+    camera.getWorldDirection(new THREE.Vector3()),
+    wheelDistance(e),
+  ),
+)
 addEventListener('keydown', (e) => e.code === 'KeyR' && resetPose())
 const axis = (pos: string, neg: string) =>
   (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0)
