@@ -45,6 +45,7 @@ const PARAMS = {
   walk: {
     speed: 7, // blocks per second
     sprint: 2, // speed × this while Shift is held (walk mode; Shift = down in fly mode)
+    stepHeight: 1, // auto-step: walk up rises this high without jumping (on ground only)
     gravity: 28,
     jumpSpeed: 9,
     height: 1.8,
@@ -583,8 +584,10 @@ const bodyHits = (p: Vector3) => {
   return false
 }
 // Move the camera by d with collision, in sub-steps ≤ 0.4 blocks so fast moves can't tunnel.
-// Returns which axes were blocked.
-const moveCollide = (d: readonly number[]) => {
+// Anti-stuck: a move is only undone if it CREATES an overlap (if you're already inside a block, e.g. after
+// F from fly mode, you can walk out). Auto-step: with canStep, a blocked x/z move retries 1 block higher
+// (walk up 1-block rises without jumping). Returns which axes were blocked.
+const moveCollide = (d: readonly number[], canStep = false) => {
   const blocked = [false, false, false]
   const steps = Math.ceil(Math.max(...d.map(Math.abs)) / 0.4) || 1
   const p = camera.position
@@ -592,11 +595,16 @@ const moveCollide = (d: readonly number[]) => {
     for (const a of [0, 1, 2] as const) {
       const key = (['x', 'y', 'z'] as const)[a]
       const before = p[key]
+      const wasInside = bodyHits(p)
       p[key] += d[a] / steps
-      if (bodyHits(p)) {
-        p[key] = before
-        blocked[a] = true
+      if (wasInside || !bodyHits(p)) continue
+      if (canStep && a !== 1) {
+        p.y += W.stepHeight
+        if (!bodyHits(p)) continue // stepped up
+        p.y -= W.stepHeight
       }
+      p[key] = before
+      blocked[a] = true
     }
   return blocked
 }
@@ -674,7 +682,7 @@ engine.runRenderLoop(() => {
       PARAMS.camera.moveSpeed
     if (onGround && engine.isPointerLock && keys.has('Space')) vy = W.jumpSpeed
     vy -= W.gravity * dt
-    const blocked = moveCollide([dx * k, vy * dt, dz * k])
+    const blocked = moveCollide([dx * k, vy * dt, dz * k], onGround)
     onGround = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
     if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
