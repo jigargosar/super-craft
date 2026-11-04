@@ -788,6 +788,8 @@ Object.assign(window, {
     }),
   },
 })
+// Build stamp, set at build time: VITE_BUILD="<commit> <UTC time>" npx vite build (shows 'dev' locally).
+const BUILD = `build ${import.meta.env.VITE_BUILD ?? 'dev'}`
 const setText = (el: HTMLElement, t: string) =>
   el.textContent !== t && (el.textContent = t) // skip no-op DOM writes
 const pos = document.createElement('div') // live position readout under the HUD (manual testing)
@@ -802,7 +804,7 @@ engine.runRenderLoop(() => {
   const c = camera.position
   setText(
     pos,
-    `${engine.getFps().toFixed(0)} fps  x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`,
+    `${BUILD} · ${engine.getFps().toFixed(0)} fps  x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`,
   )
   const bg = locked ? '#0008' : '#b00c'
   if (hud.style.background !== bg) hud.style.background = bg
