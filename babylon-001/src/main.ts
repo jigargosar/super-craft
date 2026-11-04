@@ -18,10 +18,10 @@ import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTextur
 import { Texture } from '@babylonjs/core/Materials/Textures/texture'
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
-import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector'
+import { Matrix, Vector3, Vector4 } from '@babylonjs/core/Maths/math.vector'
 import '@babylonjs/core/Meshes/thinInstanceMesh' // side-effect: enables thin instances
 import { SkyMaterial } from '@babylonjs/materials/sky/skyMaterial'
-import { createNoise2D } from 'simplex-noise'
+import { createNoise2D, createNoise4D } from 'simplex-noise'
 import seedrandom from 'seedrandom'
 
 // --- PARAMS (keep identical in both apps) ---
@@ -69,10 +69,32 @@ const PARAMS = {
   blocks: {
     roughness: 1,
     metalness: 0,
-    colors: { grass: '#5b8c3a', dirt: '#8b5a2b', stone: '#7f7f7f' },
   },
-  // texture: pixel-art block textures; each pixel = block color * (1 ± jitter), seeded
-  texture: { size: 16, seed: 'tex-001', jitter: 0.15 },
+  // texture: 16x16 pixel-art tiles in one atlas. Each pixel = palette[i], where i comes from
+  // seamless simplex noise (clumps; `scale` = clump frequency) mixed with `grain` of per-pixel random.
+  // Palettes run dark → light. grassSide = dirt with a ragged grass overhang of minRows..maxRows per column.
+  texture: {
+    size: 16,
+    seed: 'tex-002',
+    grassTop: {
+      palette: ['#4a8530', '#56963a', '#62a443', '#6fb14d', '#7dbe58'],
+      scale: 0.45,
+      grain: 0.35,
+    },
+    dirt: {
+      palette: ['#5b3d25', '#68472c', '#765235', '#845e3f'],
+      scale: 0.5,
+      grain: 0.45,
+    },
+    stone: {
+      palette: ['#6c6c6c', '#797979', '#868686', '#939393'],
+      scale: 0.22,
+      grain: 0.25,
+      cracks: 3,
+      crack: '#5a5a5a',
+    },
+    grassSide: { minRows: 2, maxRows: 5, edge: '#3f7429' },
+  },
 } as const
 
 const lin = (hex: string) => Color3.FromHexString(hex).toLinearSpace() // sRGB hex → linear (three does this itself)
@@ -156,7 +178,7 @@ sun.shadowMaxZ = 60
 
 // --- Chunk generation (plains). Identical code in both apps; only rendering differs. ---
 // Heightmap from seeded 2D simplex noise. Only blocks touching air are kept (hidden ones skipped).
-type BlockType = keyof typeof PARAMS.blocks.colors
+type BlockType = 'grass' | 'dirt' | 'stone'
 const K = PARAMS.chunk
 const noise2D = createNoise2D(seedrandom(K.seed))
 const heights = Array.from({ length: K.size }, (_, x) =>
@@ -198,54 +220,127 @@ for (let x = 0; x < K.size; x++)
       blocks[type].push([x - K.size / 2 + 0.5, y + 0.5, z - K.size / 2 + 0.5])
     }
 
-// --- Pixel textures (identical in both apps): size x size canvas per block type,
-//     each pixel = block color with seeded brightness jitter. Sampled with nearest filtering. ---
-const makeTextureCanvas = (type: BlockType) => {
-  const T = PARAMS.texture
-  const c = document.createElement('canvas')
-  c.width = c.height = T.size
-  const g = c.getContext('2d')!
-  const rng = seedrandom(`${T.seed}-${type}`)
-  const hex = PARAMS.blocks.colors[type]
-  const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
-  for (let y = 0; y < T.size; y++)
-    for (let x = 0; x < T.size; x++) {
-      const k = 1 + (rng() * 2 - 1) * T.jitter
-      g.fillStyle = `rgb(${rgb.map((v) => Math.min(255, v * k)).join(',')})`
-      g.fillRect(x, y, 1, 1)
-    }
-  return c
-}
-// DynamicTexture ↔ three CanvasTexture. NEAREST_SAMPLINGMODE = nearest mag, mipmapped min.
-const makeTexture = (type: BlockType) => {
-  const t = new DynamicTexture(
-    `${type}Tex`,
-    makeTextureCanvas(type),
-    scene,
-    true,
-    Texture.NEAREST_SAMPLINGMODE,
+// --- Pixel textures (logic meant to be identical in both apps): one atlas canvas, tiles left → right:
+//     0 grassTop, 1 grassSide, 2 dirt, 3 stone. One seeded RNG, drawn in a fixed order. ---
+const T = PARAMS.texture
+const N = T.size
+const TILES = ['grassTop', 'grassSide', 'dirt', 'stone'] as const
+const rng = seedrandom(T.seed)
+const noise4D = createNoise4D(rng)
+// Seamless noise: x/y map onto two circles (a torus), so tiles repeat without seams. Result in [0, 1].
+const tileNoise = (x: number, y: number, scale: number, offset: number) => {
+  const r = (scale * N) / (2 * Math.PI)
+  const [ax, ay] = [(2 * Math.PI * x) / N, (2 * Math.PI * y) / N]
+  return (
+    (noise4D(
+      r * Math.cos(ax) + offset,
+      r * Math.sin(ax),
+      r * Math.cos(ay),
+      r * Math.sin(ay),
+    ) +
+      1) /
+    2
   )
-  t.update()
-  return t
 }
-// --- Materials (PBRMaterial ↔ MeshStandardMaterial; PBRMaterial chosen because it has ambientColor).
-//     Texture carries the color (sRGB, babylon's default for albedo). ---
-const pbr = (type: BlockType) => {
-  const mat = new PBRMaterial(`${type}Mat`, scene)
-  mat.albedoTexture = makeTexture(type)
-  mat.roughness = PARAMS.blocks.roughness
-  mat.metallic = PARAMS.blocks.metalness
-  mat.ambientColor = Color3.White()
-  return mat
+// Pattern = palette index per pixel: clumps from noise, `grain` share of pure random.
+const pattern = (
+  t: { palette: readonly string[]; scale: number; grain: number },
+  offset: number,
+) =>
+  Array.from({ length: N }, (_, y) =>
+    Array.from({ length: N }, (_, x) => {
+      const v =
+        tileNoise(x, y, t.scale, offset) * (1 - t.grain) + rng() * t.grain
+      return t.palette[
+        Math.min(t.palette.length - 1, Math.floor(v * t.palette.length))
+      ]
+    }),
+  )
+const grassTop = pattern(T.grassTop, 0)
+const dirt = pattern(T.dirt, 50)
+const stone = pattern(T.stone, 100)
+// Stone cracks: short random walks of dark pixels, mostly horizontal.
+for (let i = 0; i < T.stone.cracks; i++) {
+  let [x, y] = [Math.floor(rng() * N), Math.floor(rng() * N)]
+  for (let step = 0, len = 3 + Math.floor(rng() * 4); step < len; step++) {
+    stone[y][x] = T.stone.crack
+    x = (x + 1) % N
+    if (rng() < 0.35) y = (y + (rng() < 0.5 ? 1 : N - 1)) % N
+  }
 }
+// Grass side: dirt, then per column a grass overhang of random depth with a darker bottom edge.
+const GS = T.grassSide
+const grassSide = dirt.map((row) => [...row])
+for (let x = 0; x < N; x++) {
+  const depth = GS.minRows + Math.floor(rng() * (GS.maxRows - GS.minRows + 1))
+  for (let y = 0; y < depth; y++)
+    grassSide[y][x] = y === depth - 1 ? GS.edge : grassTop[y][x]
+}
+// Paint all tiles into one atlas canvas (row 0 = top of the image).
+const atlas = document.createElement('canvas')
+atlas.width = N * TILES.length
+atlas.height = N
+const g = atlas.getContext('2d')!
+;[grassTop, grassSide, dirt, stone].forEach((tile, i) =>
+  tile.forEach((row, y) =>
+    row.forEach((hex, x) => {
+      g.fillStyle = hex
+      g.fillRect(i * N + x, y, 1, 1)
+    }),
+  ),
+)
 
-// --- Chunk rendering: one box per block type drawn via thin instances (↔ three InstancedMesh) ---
+// --- Material: one PBRMaterial with the atlas (↔ three MeshStandardMaterial).
+//     DynamicTexture from a canvas; NEAREST_NEAREST = crisp pixels, no mipmaps (no atlas bleeding). ---
+const atlasTex = new DynamicTexture(
+  'atlas',
+  atlas,
+  scene,
+  false,
+  Texture.NEAREST_NEAREST,
+)
+atlasTex.update()
+const blockMat = new PBRMaterial('blockMat', scene)
+blockMat.albedoTexture = atlasTex // sRGB canvas; babylon treats albedo textures as sRGB
+blockMat.roughness = PARAMS.blocks.roughness
+blockMat.metallic = PARAMS.blocks.metalness
+blockMat.ambientColor = Color3.White()
+
+// --- Chunk rendering: one box per block type, faceUV picks atlas tiles, drawn via thin instances.
+//     CreateBox face order: 0 +z, 1 -z, 2 +x, 3 -x, 4 top, 5 bottom. wrap: true = side images upright. ---
+// Half-texel inset keeps edge samples inside the tile (no bleeding from neighbor tiles).
+const uv = (tile: (typeof TILES)[number]) => {
+  const i = TILES.indexOf(tile)
+  const [du, dv] = [0.5 / atlas.width, 0.5 / atlas.height]
+  return new Vector4(
+    i / TILES.length + du,
+    dv,
+    (i + 1) / TILES.length - du,
+    1 - dv,
+  )
+}
+const FACE_TILES: Record<BlockType, (typeof TILES)[number][]> = {
+  grass: [
+    'grassSide',
+    'grassSide',
+    'grassSide',
+    'grassSide',
+    'grassTop',
+    'dirt',
+  ],
+  dirt: Array(6).fill('dirt'),
+  stone: Array(6).fill('stone'),
+}
 for (const [type, list] of Object.entries(blocks) as [
   BlockType,
   [number, number, number][],
 ][]) {
-  const mesh = CreateBox(type, { size: 1 }, scene)
-  mesh.material = pbr(type)
+  const mesh = CreateBox(
+    type,
+    { size: 1, wrap: true, faceUV: FACE_TILES[type].map(uv) },
+    scene,
+  )
+  mesh.material = blockMat
   mesh.thinInstanceAdd(list.map((p) => Matrix.Translation(...p)))
   mesh.receiveShadows = true
   shadows.addShadowCaster(mesh)
