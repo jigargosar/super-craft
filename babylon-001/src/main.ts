@@ -35,6 +35,8 @@ const PARAMS = {
     position: [40, 34, 40],
     target: [0, 10, 0],
     lookSpeed: 0.001, // radians per mouse pixel (pointer lock)
+    lookStep: 1.25, // [ / ] keys divide/multiply mouse + arrow turn speed by this, clamped to lookRange
+    lookRange: [0.2, 5],
     turnSpeed: 1.8, // arrow keys: radians per second (←→ turn, ↑↓ look up/down); only while the mouse is captured
     wheelStep: 1.5, // blocks moved along the view direction per mouse-wheel notch (zoom)
     eyeHeight: 1.7, // R reset: stand on the ground nearest the chunk center (inside the forest)
@@ -43,8 +45,8 @@ const PARAMS = {
     boostStep: 1.5, // +/- keys multiply/divide all move speeds by this (both modes), clamped to boostRange
     boostRange: [0.25, 8],
   },
-  // edit: block breaking/placing. reach = max ray length in blocks; place = block type right click puts down.
-  edit: { reach: 6, place: 'dirt' as BlockType },
+  // edit: block breaking/placing. reach = max ray length in blocks (1000 = effectively unlimited); place = block type right click puts down.
+  edit: { reach: 1000, place: 'dirt' as BlockType },
   // walk: player physics (bab-only for now). Body = box radius×2 wide, `height` tall; eyes at camera.eyeHeight.
   // Jump apex = jumpSpeed² / (2 × gravity) ≈ 1.45 blocks, enough to climb one block.
   walk: {
@@ -574,6 +576,8 @@ let mode: 'walk' | 'fly' = 'fly' // start in fly at the overview pose; R drops y
 let vy = 0 // vertical speed (walk mode), blocks/s
 let onGround = false
 let boost = 1 // speed multiplier from +/- keys
+let look = 1 // turn-speed multiplier from [ / ] keys (mouse + arrows)
+const applyLook = () => (camera.angularSensibility = 1 / (C.lookSpeed * look))
 // World coords → grid: block (gx, gy, gz) spans world [gx - size/2, +1) × [gy, +1) × [gz - size/2, +1).
 const solidAt = (wx: number, wy: number, wz: number) => {
   const [gx, gy, gz] = [
@@ -642,7 +646,7 @@ const setMode = (m: typeof mode) => {
   showHud()
 }
 const showHud = () =>
-  (hud.textContent = `${mode} · speed ×${boost.toFixed(2)} (+/-) · LMB break · RMB place · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
+  (hud.textContent = `${mode} · speed ×${boost.toFixed(2)} (+/-) · turn ×${look.toFixed(2)} ([ ]) · LMB break · RMB place · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
 setMode(mode)
 // R = reset pose on the forest floor, in walk mode (↔ three position.set + lookAt)
 const resetPose = () => {
@@ -682,9 +686,11 @@ const aimed = () => {
   )
   return hit && cell ? { cell: cell as number[], normal } : null
 }
+const edits: Record<number, number> = {} // grid index → block id, saved so edits survive a refresh
 const placeAt = (x: number, y: number, z: number, t: BlockType | null) => {
   if (!inside(x, y, z)) return
-  grid[idx(x, y, z)] = t ? BLOCK_TYPES.indexOf(t) + 1 : 0
+  const i = idx(x, y, z)
+  grid[i] = edits[i] = t ? BLOCK_TYPES.indexOf(t) + 1 : 0
 }
 canvas.addEventListener('contextmenu', (e) => e.preventDefault())
 canvas.addEventListener('mousedown', (e) => {
@@ -701,6 +707,7 @@ canvas.addEventListener('mousedown', (e) => {
       return placeAt(nx, ny, nz, null) // not inside yourself
   } else return
   rebuildChunk()
+  save()
 })
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') resetPose()
@@ -709,8 +716,14 @@ addEventListener('keydown', (e) => {
   if (step) {
     const [lo, hi] = C.boostRange
     boost = Math.min(hi, Math.max(lo, boost * C.boostStep ** step))
-    showHud()
   }
+  const lstep = { BracketRight: 1, BracketLeft: -1 }[e.code]
+  if (lstep) {
+    const [lo, hi] = C.lookRange
+    look = Math.min(hi, Math.max(lo, look * C.lookStep ** lstep))
+    applyLook()
+  }
+  if (step || lstep) (showHud(), save())
 })
 const axis = (pos: string, neg: string) =>
   (keys.has(pos) ? 1 : 0) - (keys.has(neg) ? 1 : 0)
@@ -746,7 +759,7 @@ engine.runRenderLoop(() => {
   if (hud.textContent.startsWith('Click')) showHud()
   // Arrow keys rotate. Right-handed scene: Babylon's mouse input flips yaw, so ← = +rotation.y.
   // Pitch clamped just short of straight up/down (same limit as Babylon's mouse input).
-  const t = C.turnSpeed * dt
+  const t = C.turnSpeed * look * dt
   camera.rotation.y += axis('ArrowLeft', 'ArrowRight') * t
   camera.rotation.x = Math.max(
     -1.55,
@@ -783,3 +796,67 @@ engine.runRenderLoop(() => {
   }
   scene.render()
 })
+
+// --- Save / load (this browser only, localStorage): block edits, pose, mode, speed and turn multipliers.
+//     Saved on every edit/setting change, every 2 s, and when the page hides. All access in try/catch:
+//     storage can be blocked (private window, previews) and the app must still run. ---
+const SAVE_KEY = 'super-craft-bab-001'
+function save() {
+  try {
+    const p = camera.position
+    const r = camera.rotation
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify({
+        edits,
+        pos: [p.x, p.y, p.z],
+        rot: [r.x, r.y],
+        mode,
+        boost,
+        look,
+      }),
+    )
+  } catch {}
+}
+try {
+  const d = JSON.parse(localStorage.getItem(SAVE_KEY) ?? 'null')
+  if (d) {
+    for (const [i, id] of Object.entries(d.edits as Record<string, number>))
+      grid[+i] = edits[+i] = id
+    if (Object.keys(d.edits).length) rebuildChunk()
+    camera.position = new Vector3(...(d.pos as [number, number, number]))
+    ;[camera.rotation.x, camera.rotation.y] = d.rot
+    ;[boost, look] = [d.boost, d.look]
+    setMode(d.mode)
+  }
+} catch {}
+applyLook()
+showHud()
+setInterval(save, 2000)
+addEventListener('pagehide', save)
+
+// --- Top-right buttons: reload the page (keeps the save) and start a fresh world (clears it). ---
+const buttons = document.createElement('div')
+buttons.style.cssText = 'position:fixed;top:8px;right:8px;display:flex;gap:6px'
+const BUTTONS: [string, () => void][] = [
+  ['↻ Reload', () => (save(), location.reload())],
+  [
+    '⟲ New world',
+    () => {
+      try {
+        localStorage.removeItem(SAVE_KEY)
+      } catch {}
+      removeEventListener('pagehide', save) // don't re-save the old world on the way out
+      location.reload()
+    },
+  ],
+]
+for (const [label, onClick] of BUTTONS) {
+  const b = document.createElement('button')
+  b.textContent = label
+  b.style.cssText =
+    'padding:4px 10px;background:#000a;color:#fff;border:1px solid #fff4;border-radius:4px;font:600 13px system-ui,sans-serif;cursor:pointer'
+  b.onclick = onClick
+  buttons.append(b)
+}
+document.body.append(buttons)
