@@ -46,7 +46,7 @@ const PARAMS = {
   walk: {
     speed: 7, // blocks per second
     sprint: 2, // speed × this while Shift is held (walk mode; Shift = down in fly mode)
-    stepHeight: 1, // auto-jump: walking into a rise this high triggers a jump (on ground only)
+    climbSpeed: 6, // walking into a block of any height: rise at this speed (blocks/s) until you're on top
     gravity: 28,
     jumpSpeed: 9,
     height: 1.8,
@@ -586,11 +586,9 @@ const bodyHits = (p: Vector3) => {
 }
 // Move the camera by d with collision, in sub-steps ≤ 0.4 blocks so fast moves can't tunnel.
 // Anti-stuck: a move is only undone if it CREATES an overlap (if you're already inside a block, e.g. after
-// F from fly mode, you can walk out). Auto-jump check: when an x/z move is blocked but would fit 1 block
-// higher, `climbable` is set and the caller jumps (a real arc, no teleport). Returns blocked axes + climbable.
+// F from fly mode, you can walk out). Returns which axes were blocked.
 const moveCollide = (d: readonly number[]) => {
   const blocked = [false, false, false]
-  let climbable = false
   const steps = Math.ceil(Math.max(...d.map(Math.abs)) / 0.4) || 1
   const p = camera.position
   for (let s = 0; s < steps; s++)
@@ -600,15 +598,10 @@ const moveCollide = (d: readonly number[]) => {
       const wasInside = bodyHits(p)
       p[key] += d[a] / steps
       if (wasInside || !bodyHits(p)) continue
-      if (a !== 1) {
-        p.y += W.stepHeight
-        climbable ||= !bodyHits(p)
-        p.y -= W.stepHeight
-      }
       p[key] = before
       blocked[a] = true
     }
-  return { blocked, climbable }
+  return blocked
 }
 const hud = document.createElement('div') // mode + key help under the app label
 hud.style.cssText =
@@ -699,11 +692,11 @@ engine.runRenderLoop(() => {
       PARAMS.camera.moveSpeed
     if (onGround && keys.has('Space')) vy = W.jumpSpeed
     vy -= W.gravity * dt
-    const { blocked, climbable } = moveCollide([dx * k, vy * dt, dz * k])
-    const landed = blocked[1] && vy < 0
+    const blocked = moveCollide([dx * k, vy * dt, dz * k])
+    onGround = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
-    if (landed && climbable) vy = W.jumpSpeed // auto-jump onto 1-block rises
-    onGround = landed
+    // Bumped into a block while walking: rise smoothly until on top (next frame's move clears the edge).
+    if (blocked[0] || blocked[2]) vy = W.climbSpeed
     if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
   }
   scene.render()
