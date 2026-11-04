@@ -250,7 +250,15 @@ sun.shadowMaxZ = S.shadowFar
 type BlockType = 'grass' | 'dirt' | 'stone' | 'log' | 'leaves'
 const BLOCK_TYPES: BlockType[] = ['grass', 'dirt', 'stone', 'log', 'leaves'] // grid id = index + 1; 0 = air
 const K = PARAMS.chunk
-const noise2D = createNoise2D(seedrandom(K.seed))
+// World seed (bab-only): ⟲ New world stores a random one; none stored = the PARAMS seeds.
+const SEED_KEY = 'super-craft-bab-001-seed'
+let storedSeed: string | null = null
+try {
+  storedSeed = localStorage.getItem(SEED_KEY)
+} catch {}
+const seed = storedSeed ?? K.seed
+const WORLD_TAG = `${seed}/${K.size}` // a save only loads into the world it was made in
+const noise2D = createNoise2D(seedrandom(seed))
 // fbm: `octaves` layers of simplex, each at lacunarity× frequency and persistence× amplitude. Result in [-1, 1].
 const fbm = (x: number, z: number) => {
   let [sum, norm, amp, freq] = [0, 0, 1, K.noiseScale]
@@ -293,7 +301,7 @@ for (let x = 0; x < K.size; x++)
     }
 // Trees: scan x then z. RNG call order must match in both apps (trunk roll only when a tree is placed).
 const TR = PARAMS.trees
-const treeRng = seedrandom(TR.seed)
+const treeRng = seedrandom(storedSeed ? `${storedSeed}-trees` : TR.seed)
 const trees: [number, number, number][] = [] // [x, groundY, z] = first trunk block
 for (let x = TR.margin; x < K.size - TR.margin; x++)
   for (let z = TR.margin; z < K.size - TR.margin; z++) {
@@ -807,7 +815,7 @@ engine.runRenderLoop(() => {
   const c = camera.position
   setText(
     pos,
-    `${BUILD} · ${engine.getFps().toFixed(0)} fps  x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`,
+    `${BUILD} · seed ${seed} · ${engine.getFps().toFixed(0)} fps  x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`,
   )
   const bg = locked ? '#0008' : '#b00c'
   if (hud.style.background !== bg) hud.style.background = bg
@@ -879,6 +887,7 @@ function save() {
     localStorage.setItem(
       SAVE_KEY,
       JSON.stringify({
+        tag: WORLD_TAG,
         edits,
         pos: [p.x, p.y, p.z],
         rot: [r.x, r.y],
@@ -892,7 +901,7 @@ function save() {
 }
 try {
   const d = JSON.parse(localStorage.getItem(SAVE_KEY) ?? 'null')
-  if (d) {
+  if (d?.tag === WORLD_TAG) {
     for (const [i, id] of Object.entries(d.edits as Record<string, number>))
       grid[+i] = edits[+i] = id
     if (Object.keys(d.edits).length) rebuildChunk()
@@ -907,7 +916,7 @@ showHud()
 setInterval(save, 2000)
 addEventListener('pagehide', save)
 
-// --- Top-right buttons: reload the page (keeps the save) and start a fresh world (clears it). ---
+// --- Top-right buttons: reload the page (keeps the save) and start a fresh world (clears it, new random seed). ---
 const buttons = document.createElement('div')
 buttons.style.cssText = 'position:fixed;top:8px;right:8px;display:flex;gap:6px'
 const BUTTONS: [string, () => void][] = [
@@ -917,6 +926,7 @@ const BUTTONS: [string, () => void][] = [
     () => {
       try {
         localStorage.removeItem(SAVE_KEY)
+        localStorage.setItem(SEED_KEY, Math.random().toString(36).slice(2, 8))
       } catch {}
       removeEventListener('pagehide', save) // don't re-save the old world on the way out
       location.reload()
