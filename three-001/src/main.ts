@@ -56,8 +56,9 @@ const PARAMS = {
     metalness: 0,
     colors: { grass: '#5b8c3a', dirt: '#8b5a2b', stone: '#7f7f7f' },
   },
-  // texture: pixel-art block textures; each pixel = block color * (1 ± jitter), seeded
-  texture: { size: 16, seed: 'tex-001', jitter: 0.15 },
+  // texture: pixel-art block textures. size = pixels per block edge (smaller = bigger pixels).
+  // Each pixel = block color * one of `shades` (picked by seeded random) for distinct, crisp tones.
+  texture: { size: 8, seed: 'tex-001', shades: [0.78, 0.9, 1, 1.12] },
 } as const
 
 // --- Renderer (↔ babylon Engine + imageProcessingConfiguration ACES) ---
@@ -177,7 +178,7 @@ for (let x = 0; x < K.size; x++)
     }
 
 // --- Pixel textures (identical in both apps): size x size canvas per block type,
-//     each pixel = block color with seeded brightness jitter. Sampled with nearest filtering. ---
+//     each pixel = block color times a seeded pick from PARAMS.texture.shades. Nearest filtering. ---
 const makeTextureCanvas = (type: BlockType) => {
   const T = PARAMS.texture
   const c = document.createElement('canvas')
@@ -188,7 +189,7 @@ const makeTextureCanvas = (type: BlockType) => {
   const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
   for (let y = 0; y < T.size; y++)
     for (let x = 0; x < T.size; x++) {
-      const k = 1 + (rng() * 2 - 1) * T.jitter
+      const k = T.shades[Math.floor(rng() * T.shades.length)]
       g.fillStyle = `rgb(${rgb.map((v) => Math.min(255, v * k)).join(',')})`
       g.fillRect(x, y, 1, 1)
     }
