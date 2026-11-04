@@ -31,7 +31,7 @@ A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `b
   `tex-002`). Different `PARAMS.texture` fields. fix.
 - Face shading: bab-only `faceShade` (top 1, z 0.8, x 0.62, bottom 0.5); tre has none. fix.
 - Clouds: tre sky has clouds; bab has none. fix.
-- Walk mode (gravity, jump, collision, F walk/fly, Shift sprint, +/- speed, climb onto blocks, anti-stuck, arrow-key turning, click-to-capture HUD prompt, HUD line, `PARAMS.walk`, moveSpeed 12): bab-only. fix.
+- Walk mode (gravity, jump, collision, F walk/fly, Shift sprint, +/- speed, climb onto ground blocks (not trees), anti-stuck, arrow-key turning, click-to-capture HUD prompt, HUD line, `PARAMS.walk`, moveSpeed 12): bab-only. fix.
 - Sky `luminance` 0.6: bab-only. skip (no Three.js Sky equivalent).
 
 ## Next (remove each line when done)

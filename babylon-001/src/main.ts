@@ -46,7 +46,7 @@ const PARAMS = {
   walk: {
     speed: 7, // blocks per second
     sprint: 2, // speed × this while Shift is held (walk mode; Shift = down in fly mode)
-    climbSpeed: 6, // walking into a block of any height: rise at this speed (blocks/s) until you're on top
+    climbSpeed: 6, // walking into ground (grass/dirt/stone) of any height: rise at this speed (blocks/s) until you're on top
     gravity: 28,
     jumpSpeed: 9,
     height: 1.8,
@@ -560,7 +560,12 @@ const solidAt = (wx: number, wy: number, wz: number) => {
     Math.floor(wy),
     Math.floor(wz + K.size / 2),
   ]
-  return gy < 0 ? inside(gx, 0, gz) : get(gx, gy, gz) !== 0 // below y=0 solid only under the chunk
+  // Block id (0 = air). Below y=0 counts as stone, but only under the chunk.
+  return gy < 0
+    ? inside(gx, 0, gz)
+      ? BLOCK_TYPES.indexOf('stone') + 1
+      : 0
+    : get(gx, gy, gz)
 }
 // Does the body (feet at camera.y - eyeHeight) overlap any solid block?
 const bodyHits = (p: Vector3) => {
@@ -580,15 +585,18 @@ const bodyHits = (p: Vector3) => {
         let z = Math.floor(p.z - W.radius + e);
         z <= Math.floor(p.z + W.radius - e);
         z++
-      )
-        if (solidAt(x + 0.5, y + 0.5, z + 0.5)) return true
-  return false
+      ) {
+        const id = solidAt(x + 0.5, y + 0.5, z + 0.5)
+        if (id) return id // first overlapping block's id
+      }
+  return 0
 }
 // Move the camera by d with collision, in sub-steps ≤ 0.4 blocks so fast moves can't tunnel.
 // Anti-stuck: a move is only undone if it CREATES an overlap (if you're already inside a block, e.g. after
 // F from fly mode, you can walk out). Returns which axes were blocked.
 const moveCollide = (d: readonly number[]) => {
   const blocked = [false, false, false]
+  let wallIsGround = false // an x/z move was blocked by terrain (grass/dirt/stone), not a tree
   const steps = Math.ceil(Math.max(...d.map(Math.abs)) / 0.4) || 1
   const p = camera.position
   for (let s = 0; s < steps; s++)
@@ -597,12 +605,15 @@ const moveCollide = (d: readonly number[]) => {
       const before = p[key]
       const wasInside = bodyHits(p)
       p[key] += d[a] / steps
-      if (wasInside || !bodyHits(p)) continue
+      const hit = bodyHits(p)
+      if (wasInside || !hit) continue
       p[key] = before
       blocked[a] = true
+      if (a !== 1 && GROUND.includes(BLOCK_TYPES[hit - 1])) wallIsGround = true
     }
-  return blocked
+  return { blocked, wallIsGround }
 }
+const GROUND: BlockType[] = ['grass', 'dirt', 'stone'] // climbable; logs/leaves just stop you
 const hud = document.createElement('div') // mode + key help under the app label
 hud.style.cssText =
   'position:fixed;top:36px;left:8px;padding:2px 8px;background:#0008;color:#fff;font:12px system-ui,sans-serif;border-radius:4px;pointer-events:none'
@@ -692,11 +703,11 @@ engine.runRenderLoop(() => {
       PARAMS.camera.moveSpeed
     if (onGround && keys.has('Space')) vy = W.jumpSpeed
     vy -= W.gravity * dt
-    const blocked = moveCollide([dx * k, vy * dt, dz * k])
+    const { blocked, wallIsGround } = moveCollide([dx * k, vy * dt, dz * k])
     onGround = blocked[1] && vy < 0
     if (blocked[1]) vy = 0
-    // Bumped into a block while walking: rise smoothly until on top (next frame's move clears the edge).
-    if (blocked[0] || blocked[2]) vy = W.climbSpeed
+    // Bumped into GROUND (not trees): rise smoothly until on top (next frame's move clears the edge).
+    if (wallIsGround) vy = W.climbSpeed
     if (camera.position.y < W.fallResetY) resetPose() // walked off the chunk edge
   }
   scene.render()
