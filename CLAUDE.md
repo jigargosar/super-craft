@@ -28,6 +28,8 @@ A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `b
 14. After every bab commit, rebuild and republish the bab preview artifact
     (https://claude.ai/artifact/6VKqC5eoPHUeyQe5CxsyLJ), and in every report say whether it is current
     (its build stamp vs HEAD). Never report a feature as done while the preview is stale.
+15. Handoff: one file only, `docs/handoff.md` (no number suffix). Each `/amhandoff` overwrites it; git history keeps
+    the old ones.
 
 ## Parity gaps (one line each: what differs, then "fix" or "skip (reason)")
 
