@@ -109,8 +109,8 @@ Said in chat:
 | simplex-noise / seedrandom | 4.0.3 / 3.0.5 |
 | typescript / vite / concurrently | 7.0.2 / 8.3.5 / 10.0.6 |
 | tre preview | https://claude.ai/artifact/LjNEWmXjpw4ioCcD1QcrDb (v11) |
-| bab preview | https://claude.ai/artifact/6VKqC5eoPHUeyQe5CxsyLJ (v33) |
-| Latest commit | b1c648d (main, pushed) |
+| bab preview | https://claude.ai/artifact/6VKqC5eoPHUeyQe5CxsyLJ (v34) |
+| Latest commit | see `git log` (after b1c648d: own mouse look commit) |
 | World fingerprint (trees on, both apps) | world {"trees":20,"grass":1002,"dirt":430,"stone":1076,"log":64,"leaves":878} |
 
 bab PARAMS (current):
@@ -139,7 +139,7 @@ Publish recipe: `npx vite build --base=./` in app dir, then Artifact publish `fi
 | CLAUDE.md | rules 1-12 + Parity gaps + Next | repo root | Next list stale: biome `[.]` done but unticked; controls not listed |
 | Biome chunk (both) | done | 8f6ed78 / b1703d5 | trees TEMP off in bab |
 | bab walk/fly/climb | working, tap-tested | 9daff5d, cc08032 | lost quick taps fixed in cc08032 (`tapped` set holds a key for ≥1 frame); post-fix headless test could not complete (headless runs at ~7 fps and kept timing out) |
-| bab smooth turning | fix shipped, unconfirmed | b1c648d | `scene.skipPointerMovePicking = true` (Babylon picked thousands of instances on every mouse move) + DOM text/background written only when changed. No code ever restricted turning during jump/climb |
+| bab smooth turning | fix shipped, unconfirmed | b1c648d + next commit | user reported steady 60 fps yet jerky turning → Babylon's FreeCameraMouseInput removed; own `mousemove` handler applies movementX/Y × lookSpeed × look to camera.rotation immediately (RH: yaw -= mx, pitch -= my, clamp ±1.5707). Arrow ↑/↓ direction fixed to match. Before that: | `scene.skipPointerMovePicking = true` (Babylon picked thousands of instances on every mouse move) + DOM text/background written only when changed. No code ever restricted turning during jump/climb |
 | bab position readout | built | cc08032 | top-left 3rd line: fps, x, y (feet), z, ground/climbing; for diagnosing jerky look |
 | bab break/place | built, untested by Claude (needs pointer lock) | 4a2d71c | user hasn't confirmed |
 | bab save + buttons | built, headless-tested | c883ca6, 7b73e69 | |
@@ -147,7 +147,7 @@ Publish recipe: `npx vite build --base=./` in app dir, then Artifact publish `fi
 | handoff-super-craft-002.md | old | repo root | superseded by this file |
 
 ## 11. Next steps
-1. **Next action:** ask the user if turning is smooth in bab v33 (and what fps the readout shows); if still jerky, profile (shadows 2048 map, PBR, instance count) and search Babylon forum (rule 17).
+1. **Next action:** ask the user if turning is smooth in bab v34 (and what fps the readout shows); if still jerky, profile (shadows 2048 map, PBR, instance count) and search Babylon forum (rule 17).
 2. Clean up CLAUDE.md Next (tick the biome task; add lines: bab controls done, trees back on, hotbar 1-5, tre catch-up), ask the user which feature is `[.]`.
 3. Put trees back (`trees.chance` 0 → 0.03) once the user confirms climbing works.
 4. Then the user's chosen next feature (candidates: block hotbar, HUD FPS/XYZ/biome, clouds for bab, tre catch-up).
