@@ -41,10 +41,13 @@ A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `b
 - Water + sand beaches (water plane at waterLevel 9, swim physics, sand hotbar slot 6): bab-only. fix.
 - Day/night cycle (`PARAMS.day`, 10 min day, T fast-forward, clock in readout, time saved): bab-only. fix.
 - World size: bab 64x64 (shadowExtent 46, sun distance 90, shadowFar 200, start [70,44,70]); tre 32x32. fix.
+- Block-break particles (`PARAMS.burst`, ParticleSystem, tile-textured): bab-only. fix.
 - Sky `luminance` 0.6: bab-only. skip (no Three.js Sky equivalent).
 
 ## Next (remove each line when done)
 
 last dot is the task we work on.
 
-- [.] Block-break particles.
+- [.] Torch / glowstone light block.
+- [ ] Tall grass + flowers (cross-quad plants).
+- [ ] Sound effects (break/place/step).

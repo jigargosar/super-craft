@@ -29,6 +29,8 @@ import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder'
 import '@babylonjs/core/Materials/Textures/Procedurals/proceduralTextureSceneComponent' // side-effect: renders procedural textures
 import { createNoise2D, createNoise4D } from 'simplex-noise'
 import seedrandom from 'seedrandom'
+import { ParticleSystem } from '@babylonjs/core/Particles/particleSystem'
+import '@babylonjs/core/Particles/particleSystemComponent' // side-effect: scene renders particle systems
 import raycast from 'fast-voxel-raycast' // voxel DDA ray walk (used by the noa engine)
 import type { Mesh } from '@babylonjs/core/Meshes/mesh'
 
@@ -53,6 +55,14 @@ const PARAMS = {
   },
   // edit: block breaking/placing. reach = max ray length in blocks (1000 = effectively unlimited); place = default hotbar block.
   edit: { reach: 1000, place: 'dirt' as BlockType },
+  // burst: block-break particles (bab-only). Each particle shows the broken block's icon tile.
+  burst: {
+    count: 24,
+    size: [0.08, 0.18],
+    life: [0.35, 0.8],
+    power: [1.5, 3],
+    gravity: 18,
+  },
   // walk: player physics (bab-only for now). Body = box radius×2 wide, `height` tall; eyes at camera.eyeHeight.
   // Jump apex = jumpSpeed² / (2 × gravity) ≈ 1.45 blocks, enough to climb one block.
   walk: {
@@ -933,6 +943,43 @@ const showAim = (on: boolean) => {
     outline.position.set(x - K.size / 2 + 0.5, y + 0.5, z - K.size / 2 + 0.5)
   }
 }
+// Block-break burst: one short-lived ParticleSystem per break (disposes itself), texture = the block's icon tile.
+const B = PARAMS.burst
+const tileTex = {} as Record<BlockType, DynamicTexture>
+const burst = (x: number, y: number, z: number, t: BlockType) => {
+  if (!tileTex[t]) {
+    const tex = new DynamicTexture(
+      `burst-${t}`,
+      { width: N, height: N },
+      scene,
+      false,
+      Texture.NEAREST_NEAREST,
+    )
+    tex
+      .getContext()
+      .drawImage(atlas, TILES.indexOf(HOTBAR_ICON[t]) * N, 0, N, N, 0, 0, N, N)
+    tex.update()
+    tileTex[t] = tex
+  }
+  const ps = new ParticleSystem('burst', B.count, scene)
+  ps.particleTexture = tileTex[t]
+  ps.emitter = new Vector3(x - K.size / 2 + 0.5, y + 0.5, z - K.size / 2 + 0.5)
+  ps.minEmitBox = new Vector3(-0.4, -0.4, -0.4)
+  ps.maxEmitBox = new Vector3(0.4, 0.4, 0.4)
+  ps.direction1 = new Vector3(-1, 1, -1)
+  ps.direction2 = new Vector3(1, 2.5, 1)
+  ps.gravity = new Vector3(0, -B.gravity, 0)
+  ;[ps.minSize, ps.maxSize] = B.size
+  ;[ps.minLifeTime, ps.maxLifeTime] = B.life
+  ;[ps.minEmitPower, ps.maxEmitPower] = B.power
+  ps.color1 = ps.color2 = new Color4(1, 1, 1, 1)
+  ps.colorDead = new Color4(1, 1, 1, 0)
+  ps.blendMode = ParticleSystem.BLENDMODE_STANDARD
+  ps.manualEmitCount = B.count // emit all at once
+  ps.targetStopDuration = 0.05 // stop emitting right away; live particles finish their life
+  ps.onAnimationEnd = () => ps.dispose(false) // false = keep the shared tile texture (disposeOnStop would free it)
+  ps.start()
+}
 const edits: Record<number, number> = {} // grid index → block id, saved so edits survive a refresh
 const placeAt = (x: number, y: number, z: number, t: BlockType | null) => {
   if (!inside(x, y, z)) return
@@ -946,8 +993,10 @@ canvas.addEventListener('pointerdown', (e) => {
   const a = aimed()
   if (!a) return
   const [x, y, z] = a.cell
-  if (e.button === 0) placeAt(x, y, z, null)
-  else if (e.button === 2) {
+  if (e.button === 0) {
+    burst(x, y, z, BLOCK_TYPES[get(x, y, z) - 1])
+    placeAt(x, y, z, null)
+  } else if (e.button === 2) {
     const [nx, ny, nz] = [x + a.normal[0], y + a.normal[1], z + a.normal[2]]
     if (get(nx, ny, nz) !== 0) return
     placeAt(nx, ny, nz, selected)
