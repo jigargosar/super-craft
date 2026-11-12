@@ -40,11 +40,11 @@ A Minecraft-themed voxel app, built twice: `three-001/` ("tre", Three.js) and `b
 - Walk mode (gravity, jump, collision, F walk/fly, Shift sprint, +/- speed, anti-stuck, LMB break / RMB place (fast-voxel-raycast 0.1.1, unlimited reach), 1-5 block hotbar, [ ] turn speed, localStorage save, Reload / New world buttons (New world = random seed in localStorage, save tagged seed + size, seed in readout), arrow-key turning, click-to-capture HUD prompt, HUD line, `PARAMS.walk`, moveSpeed 12): bab-only. fix.
 - Water + sand beaches (water plane at waterLevel 9, swim physics, sand hotbar slot 6): bab-only. fix.
 - Day/night cycle (`PARAMS.day`, 10 min day, T fast-forward, clock in readout, time saved): bab-only. fix.
+- World size: bab 64x64 (shadowExtent 46, sun distance 90, shadowFar 200, start [70,44,70]); tre 32x32. fix.
 - Sky `luminance` 0.6: bab-only. skip (no Three.js Sky equivalent).
 
 ## Next (remove each line when done)
 
 last dot is the task we work on.
 
-- [.] Bigger world (64x64 chunk).
-- [ ] Block-break particles.
+- [.] Block-break particles.

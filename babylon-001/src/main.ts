@@ -1,4 +1,4 @@
-// babylon-001 scene: one forest-edge plains chunk (32x32 blocks, trees) + sky + hemispheric/ambient/sun lights.
+// babylon-001 scene: one forest-edge plains chunk (64x64 blocks, trees) + sky + hemispheric/ambient/sun lights.
 // PARITY: three-001/src/main.ts mirrors this file. PARAMS match except gaps listed in CLAUDE.md "Parity gaps";
 // change a value in one, change it in the other. API pairs are noted per section.
 // Gotchas vs three: (1) right-handed system turned on so coordinates match three;
@@ -38,7 +38,7 @@ const PARAMS = {
     fovDeg: 70,
     near: 0.1,
     far: 2000,
-    position: [40, 34, 40],
+    position: [70, 44, 70],
     target: [0, 10, 0],
     lookSpeed: 0.001, // radians per mouse pixel (pointer lock)
     lookStep: 1.25, // [ / ] keys divide/multiply mouse + arrow turn speed by this, clamped to lookRange
@@ -74,9 +74,9 @@ const PARAMS = {
     shadowMapSize: 2048,
     shadowBias: 0.0005, // depth bias against shadow acne
     shadowNormalBias: 0.02, // offset along normals against acne on block faces
-    shadowExtent: 26, // half-size of the shadow box around the chunk (blocks)
-    distance: 60, // light placed at sunDir * distance
-    shadowFar: 140, // shadow camera far plane (↔ three shadow.camera.far)
+    shadowExtent: 46, // half-size of the shadow box around the chunk (blocks)
+    distance: 90, // light placed at sunDir * distance
+    shadowFar: 200, // shadow camera far plane (↔ three shadow.camera.far)
   },
   // day (bab-only): day/night cycle. time = fraction of a day (0.25 sunrise, 0.5 noon, 0.75 sunset);
   // start matches sun.polarDeg 50 (40° up, morning). Hold T to fast-forward ×fastForward. Sun crosses the sky
@@ -117,7 +117,7 @@ const PARAMS = {
   },
   // chunk: forest-edge plains. height = baseHeight + amplitude * (fbm + 1) / 2, fbm in [-1, 1]
   chunk: {
-    size: 32,
+    size: 64,
     maxHeight: 48,
     seed: 'forest-plains-001',
     baseHeight: 2,
