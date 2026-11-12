@@ -55,6 +55,16 @@ const PARAMS = {
   },
   // edit: block breaking/placing. reach = max ray length in blocks (1000 = effectively unlimited); place = default hotbar block.
   edit: { reach: 1000, place: 'dirt' as BlockType },
+  // plants (bab-only): cross-quad tall grass / flowers on grass tops, not solid, not saved (regrown from the seed;
+  // a plant vanishes when its cell gets a block or the grass under it is removed).
+  plants: {
+    grass: 0.18,
+    flower: 0.03,
+    bladeDensity: 0.6,
+    stem: '#3f7a2a',
+    petal: '#d8433a',
+    center: '#f2d23c',
+  },
   // burst: block-break particles (bab-only). Each particle shows the broken block's icon tile.
   burst: {
     count: 24,
@@ -521,6 +531,8 @@ const TILES = [
   'logTop',
   'leaves',
   'sand',
+  'tallGrass',
+  'flower',
 ] as const
 const rng = seedrandom(T.seed)
 const noise4D = createNoise4D(rng)
@@ -598,19 +610,47 @@ const logTop = Array.from({ length: N }, (_, y) =>
 )
 const leaves = pattern(T.leaves, 150)
 const sand = pattern(T.sand, 200)
+// Plant tiles (bab-only): transparent background ('' = clear pixel). Own RNG so the block tiles above don't change.
+const PL = PARAMS.plants
+const plantRng = seedrandom(`${T.seed}-plants`)
+const clearTile = () =>
+  Array.from({ length: N }, () => Array(N).fill('') as string[])
+const tallGrass = clearTile()
+for (let x = 0; x < N; x++) {
+  if (plantRng() > PL.bladeDensity) continue
+  const h = 4 + Math.floor(plantRng() * (N - 4))
+  for (let y = N - h; y < N; y++)
+    tallGrass[y][x] =
+      T.grassTop.palette[Math.floor(plantRng() * T.grassTop.palette.length)]
+}
+const flower = clearTile()
+for (let y = 7; y < N; y++) flower[y][7] = flower[y][8] = PL.stem
+for (let y = 3; y < 7; y++) for (let x = 6; x < 10; x++) flower[y][x] = PL.petal
+flower[4][7] = flower[4][8] = flower[5][7] = flower[5][8] = PL.center
 // Paint all tiles into one atlas canvas (row 0 = top of the image).
 const atlas = document.createElement('canvas')
 atlas.width = N * TILES.length
 atlas.height = N
 const g = atlas.getContext('2d')!
-;[grassTop, grassSide, dirt, stone, logSide, logTop, leaves, sand].forEach(
-  (tile, i) =>
-    tile.forEach((row, y) =>
-      row.forEach((hex, x) => {
-        g.fillStyle = hex
-        g.fillRect(i * N + x, y, 1, 1)
-      }),
-    ),
+;[
+  grassTop,
+  grassSide,
+  dirt,
+  stone,
+  logSide,
+  logTop,
+  leaves,
+  sand,
+  tallGrass,
+  flower,
+].forEach((tile, i) =>
+  tile.forEach((row, y) =>
+    row.forEach((hex, x) => {
+      if (!hex) return // transparent plant pixel
+      g.fillStyle = hex
+      g.fillRect(i * N + x, y, 1, 1)
+    }),
+  ),
 )
 
 // --- Hotbar UI (bab-only): bottom-center slots, one per BLOCK_TYPES entry, icon = its side tile from the atlas.
@@ -738,9 +778,80 @@ waterMat.specularColor = new Color3(0.3, 0.3, 0.3)
 waterMat.backFaceCulling = false // visible from below while swimming
 water.material = waterMat
 water.receiveShadows = true
+// --- Plants (bab-only): seeded per grass column; drawn as two crossed double-sided planes (thin instances). ---
+type Plant = 'tallGrass' | 'flower'
+const plants = new Map<number, Plant>() // grid index of the plant's (air) cell → kind
+{
+  const rngP = seedrandom(`${seed}-plants`)
+  const grassId = BLOCK_TYPES.indexOf('grass') + 1
+  for (let x = 0; x < K.size; x++)
+    for (let z = 0; z < K.size; z++) {
+      const r = rngP()
+      const y = heights[x][z]
+      if (get(x, y - 1, z) !== grassId || get(x, y, z) !== 0) continue
+      if (r < PL.flower) plants.set(idx(x, y, z), 'flower')
+      else if (r < PL.flower + PL.grass) plants.set(idx(x, y, z), 'tallGrass')
+    }
+}
+const plantMat = new PBRMaterial('plantMat', scene)
+plantMat.albedoTexture = atlasTex
+plantMat.useAlphaFromAlbedoTexture = true
+plantMat.transparencyMode = Material.MATERIAL_ALPHATEST
+plantMat.alphaCutOff = 0.5
+plantMat.backFaceCulling = false
+plantMat.roughness = 1
+plantMat.metallic = 0
+plantMat.ambientColor = Color3.White()
+blockMat.transparencyMode = Material.MATERIAL_OPAQUE // atlas now has alpha (plants); blocks stay opaque
+const plantMeshes = Object.fromEntries(
+  (['tallGrass', 'flower'] as Plant[]).map((k) => {
+    const m = CreatePlane(
+      k,
+      { size: 1, frontUVs: uv(k), backUVs: uv(k), sideOrientation: 2 },
+      scene,
+    ) // 2 = DOUBLESIDE
+    m.material = plantMat
+    m.receiveShadows = true
+    m.isPickable = false
+    return [k, m]
+  }),
+) as Record<Plant, Mesh>
+const DIAG = [Matrix.RotationY(Math.PI / 4), Matrix.RotationY(-Math.PI / 4)]
+const rebuildPlants = () => {
+  const lists: Record<Plant, number[]> = { tallGrass: [], flower: [] }
+  for (const [i, k] of plants) {
+    const x = i % K.size
+    const z = Math.floor(i / K.size) % K.size
+    const y = Math.floor(i / (K.size * K.size))
+    if (
+      get(x, y, z) !== 0 ||
+      get(x, y - 1, z) !== BLOCK_TYPES.indexOf('grass') + 1
+    ) {
+      plants.delete(i) // cell filled or grass gone: plant is gone for good
+      continue
+    }
+    const t = Matrix.Translation(
+      x - K.size / 2 + 0.5,
+      y + 0.5,
+      z - K.size / 2 + 0.5,
+    )
+    for (const r of DIAG) lists[k].push(...r.multiply(t).asArray())
+  }
+  for (const k of ['tallGrass', 'flower'] as Plant[]) {
+    plantMeshes[k].thinInstanceSetBuffer(
+      'matrix',
+      new Float32Array(lists[k]),
+      16,
+      false,
+    )
+    plantMeshes[k].isVisible = lists[k].length > 0
+  }
+}
+rebuildPlants()
 const rebuildChunk = () => {
   const b = visibleBlocks()
   BLOCK_TYPES.forEach((t) => setInstances(t, b[t]))
+  rebuildPlants()
 }
 
 // --- Fly movement (identical in both apps): WASD on the horizontal plane, Space up, Shift down, R reset.
