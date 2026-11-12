@@ -117,6 +117,17 @@ const PARAMS = {
     persistence: 0.5,
     lacunarity: 2,
     dirtDepth: 3,
+    // water (bab-only): one translucent plane at waterLevel (no water blocks). Columns whose top is at most
+    // waterLevel + beach get sand instead of grass/dirt; trees skip them. In water: slower moves, slow sink, Space swims up.
+    waterLevel: 9,
+    beach: 1,
+    water: {
+      color: '#2f6fd0',
+      alpha: 0.6,
+      speed: 0.5,
+      gravity: 0.25,
+      swimSpeed: 3.5,
+    },
   },
   // trees: oak. Per column (inside margin) roll `chance`; skip if another tree within minSpacing (Chebyshev).
   trees: {
@@ -165,6 +176,11 @@ const PARAMS = {
       palette: ['#2c5c1d', '#356b23', '#3f7a2a', '#4c8c34'],
       scale: 0.6,
       grain: 0.4,
+    },
+    sand: {
+      palette: ['#cdb57a', '#d8c088', '#e2cb94', '#ead6a2'],
+      scale: 0.5,
+      grain: 0.5,
     },
   },
 } as const
@@ -300,8 +316,16 @@ sun.shadowMaxZ = S.shadowFar
 
 // --- World generation (biome: forest-edge plains). IDENTICAL code in both apps; only rendering differs.
 //     Terrain = fbm heightmap into a 3D grid; trees stamped on top; only blocks touching air are rendered. ---
-type BlockType = 'grass' | 'dirt' | 'stone' | 'log' | 'leaves'
-const BLOCK_TYPES: BlockType[] = ['grass', 'dirt', 'stone', 'log', 'leaves'] // grid id = index + 1; 0 = air
+type BlockType = 'grass' | 'dirt' | 'stone' | 'log' | 'leaves' | 'sand'
+// grid id = index + 1; 0 = air. Append new types at the END so saved edits keep their ids.
+const BLOCK_TYPES: BlockType[] = [
+  'grass',
+  'dirt',
+  'stone',
+  'log',
+  'leaves',
+  'sand',
+]
 const K = PARAMS.chunk
 // World seed (bab-only): ⟲ New world stores a random one; none stored = the PARAMS seeds.
 const SEED_KEY = 'super-craft-bab-001-seed'
@@ -345,11 +369,18 @@ for (let x = 0; x < K.size; x++)
   for (let z = 0; z < K.size; z++)
     for (let y = 0; y < heights[x][z]; y++) {
       const depth = heights[x][z] - 1 - y // 0 = top block
+      const beach = heights[x][z] <= K.waterLevel + K.beach
       set(
         x,
         y,
         z,
-        depth === 0 ? 'grass' : depth <= K.dirtDepth ? 'dirt' : 'stone',
+        depth <= K.dirtDepth
+          ? beach
+            ? 'sand'
+            : depth === 0
+              ? 'grass'
+              : 'dirt'
+          : 'stone',
       )
     }
 // Trees: scan x then z. RNG call order must match in both apps (trunk roll only when a tree is placed).
@@ -359,6 +390,7 @@ const trees: [number, number, number][] = [] // [x, groundY, z] = first trunk bl
 for (let x = TR.margin; x < K.size - TR.margin; x++)
   for (let z = TR.margin; z < K.size - TR.margin; z++) {
     if (treeRng() >= TR.chance) continue
+    if (heights[x][z] <= K.waterLevel + K.beach) continue // no trees on sand / under water
     if (
       trees.some(
         ([tx, , tz]) =>
@@ -428,7 +460,7 @@ console.log(
 )
 
 // --- Pixel textures (logic meant to be identical in both apps): one atlas canvas, tiles left → right:
-//     0 grassTop, 1 grassSide, 2 dirt, 3 stone, 4 logSide, 5 logTop, 6 leaves. One seeded RNG, drawn in a fixed order. ---
+//     0 grassTop, 1 grassSide, 2 dirt, 3 stone, 4 logSide, 5 logTop, 6 leaves, 7 sand. One seeded RNG, drawn in a fixed order. ---
 const T = PARAMS.texture
 const N = T.size
 const TILES = [
@@ -439,6 +471,7 @@ const TILES = [
   'logSide',
   'logTop',
   'leaves',
+  'sand',
 ] as const
 const rng = seedrandom(T.seed)
 const noise4D = createNoise4D(rng)
@@ -515,12 +548,13 @@ const logTop = Array.from({ length: N }, (_, y) =>
   }),
 )
 const leaves = pattern(T.leaves, 150)
+const sand = pattern(T.sand, 200)
 // Paint all tiles into one atlas canvas (row 0 = top of the image).
 const atlas = document.createElement('canvas')
 atlas.width = N * TILES.length
 atlas.height = N
 const g = atlas.getContext('2d')!
-;[grassTop, grassSide, dirt, stone, logSide, logTop, leaves].forEach(
+;[grassTop, grassSide, dirt, stone, logSide, logTop, leaves, sand].forEach(
   (tile, i) =>
     tile.forEach((row, y) =>
       row.forEach((hex, x) => {
@@ -538,6 +572,7 @@ const HOTBAR_ICON: Record<BlockType, (typeof TILES)[number]> = {
   stone: 'stone',
   log: 'logSide',
   leaves: 'leaves',
+  sand: 'sand',
 }
 const hotbar = document.createElement('div')
 hotbar.style.cssText =
@@ -610,6 +645,7 @@ const FACE_TILES: Record<BlockType, (typeof TILES)[number][]> = {
   stone: Array(6).fill('stone'),
   log: ['logSide', 'logSide', 'logSide', 'logSide', 'logTop', 'logTop'],
   leaves: Array(6).fill('leaves'),
+  sand: Array(6).fill('sand'),
 }
 // faceColors = per-face vertex colors, multiplied into albedo (same face order as faceUV).
 const FS = PARAMS.faceShade
@@ -639,6 +675,20 @@ function setInstances(type: BlockType, list: [number, number, number][]) {
   meshes[type].thinInstanceSetBuffer('matrix', buf, 16, false)
   meshes[type].isVisible = list.length > 0 // 0 instances would draw the bare box at the origin
 }
+// --- Water (bab-only): one translucent plane over the whole chunk at the water surface; terrain above it hides it. ---
+const WA = K.water
+const WATER_Y = K.waterLevel - 0.1 // a bit below the full block height so shorelines read
+const water = CreatePlane('water', { size: K.size }, scene)
+water.rotation.x = Math.PI / 2 // lay flat
+water.position.y = WATER_Y
+water.isPickable = false
+const waterMat = new StandardMaterial('waterMat', scene)
+waterMat.diffuseColor = Color3.FromHexString(WA.color)
+waterMat.alpha = WA.alpha
+waterMat.specularColor = new Color3(0.3, 0.3, 0.3)
+waterMat.backFaceCulling = false // visible from below while swimming
+water.material = waterMat
+water.receiveShadows = true
 const rebuildChunk = () => {
   const b = visibleBlocks()
   BLOCK_TYPES.forEach((t) => setInstances(t, b[t]))
@@ -664,7 +714,9 @@ const centerEye = () => {
     [-1, 0],
   ]
   const fits = (x: number, z: number) =>
-    get(x, heights[x][z], z) === 0 && get(x, heights[x][z] + 1, z) === 0
+    heights[x][z] > K.waterLevel && // dry land only
+    get(x, heights[x][z], z) === 0 &&
+    get(x, heights[x][z] + 1, z) === 0
   const clear = (x: number, z: number, [dx, dz]: number[]) => {
     for (let s = 1; s <= C.clearView; s++)
       if (get(x + dx * s, heights[x][z] + 1, z + dz * s) !== 0) return false
@@ -698,7 +750,7 @@ let onGround = false
 let climbDir: [number, number] | null = null // go-to-top: push direction while a climb is running
 let boost = 1 // speed multiplier from +/- keys
 let look = 1 // turn-speed multiplier from [ / ] keys (mouse + arrows)
-let selected: BlockType = PARAMS.edit.place // hotbar: block right click places (keys 1-5 = BLOCK_TYPES order)
+let selected: BlockType = PARAMS.edit.place // hotbar: block right click places (keys 1-6 = BLOCK_TYPES order)
 // World coords → grid: block (gx, gy, gz) spans world [gx - size/2, +1) × [gy, +1) × [gz - size/2, +1).
 const solidAt = (wx: number, wy: number, wz: number) => {
   const [gx, gy, gz] = [
@@ -775,7 +827,7 @@ const setMode = (m: typeof mode) => {
 }
 const showHud = () => (
   paintHotbar(),
-  (hud.textContent = `${mode} · place ${selected} (1-5) · speed ×${boost.toFixed(2)} (+/-) · turn ×${look.toFixed(2)} ([ ]) · LMB break · RMB place · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
+  (hud.textContent = `${mode} · place ${selected} (1-6) · speed ×${boost.toFixed(2)} (+/-) · turn ×${look.toFixed(2)} ([ ]) · LMB break · RMB place · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
 )
 setMode(mode)
 // R = reset pose on the forest floor, in walk mode (↔ three position.set + lookAt)
@@ -879,7 +931,7 @@ addEventListener('keydown', (e) => {
     const [lo, hi] = C.lookRange
     look = Math.min(hi, Math.max(lo, look * C.lookStep ** lstep))
   }
-  const slot = BLOCK_TYPES[+e.code.replace('Digit', '') - 1] // Digit1..Digit5
+  const slot = BLOCK_TYPES[+e.code.replace('Digit', '') - 1] // Digit1..Digit6
   if (slot) selected = slot
   if (step || lstep || slot) (showHud(), save())
 })
@@ -964,11 +1016,17 @@ engine.runRenderLoop(() => {
   } else {
     // Walk: horizontal from WASD at walk speed, vertical from gravity/jump.
     const [dx, , dz] = moveDelta(dt, fwd)
+    // wet = feet below the water surface: slower, sinks slowly, Space swims up (WA = PARAMS.chunk.water)
+    const wet = camera.position.y - C.eyeHeight < WATER_Y
     const k =
-      (W.speed * (keys.has('ShiftLeft') ? W.sprint : 1)) /
-      PARAMS.camera.moveSpeed
-    if (onGround && (keys.has('Space') || tapped.has('Space'))) vy = W.jumpSpeed
-    if (!climbDir) vy -= W.gravity * dt
+      ((W.speed * (keys.has('ShiftLeft') ? W.sprint : 1)) /
+        PARAMS.camera.moveSpeed) *
+      (wet ? WA.speed : 1)
+    const space = keys.has('Space') || tapped.has('Space')
+    if (wet && space) vy = WA.swimSpeed
+    else if (onGround && space) vy = W.jumpSpeed
+    if (!climbDir) vy -= W.gravity * (wet ? WA.gravity : 1) * dt
+    if (wet) vy = Math.max(vy, -WA.swimSpeed) // terminal sink speed
     const wasOnGround = onGround
     const { blocked, wall } = moveCollide([dx * k, vy * dt, dz * k])
     onGround = blocked[1] && vy < 0
