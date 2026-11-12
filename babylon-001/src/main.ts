@@ -21,6 +21,12 @@ import { Color3, Color4 } from '@babylonjs/core/Maths/math.color'
 import { Matrix, Vector3, Vector4 } from '@babylonjs/core/Maths/math.vector'
 import '@babylonjs/core/Meshes/thinInstanceMesh' // side-effect: enables thin instances
 import { SkyMaterial } from '@babylonjs/materials/sky/skyMaterial'
+import { CloudProceduralTexture } from '@babylonjs/procedural-textures/cloud/cloudProceduralTexture'
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
+import { Material } from '@babylonjs/core/Materials/material'
+import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder'
+import { CreateLineSystem } from '@babylonjs/core/Meshes/Builders/linesBuilder'
+import '@babylonjs/core/Materials/Textures/Procedurals/proceduralTextureSceneComponent' // side-effect: renders procedural textures
 import { createNoise2D, createNoise4D } from 'simplex-noise'
 import seedrandom from 'seedrandom'
 import raycast from 'fast-voxel-raycast' // voxel DDA ray walk (used by the noa engine)
@@ -82,6 +88,22 @@ const PARAMS = {
     mieCoefficient: 0.005,
     mieDirectionalG: 0.8,
     luminance: 0.6,
+  },
+  // clouds (bab-only): CloudProceduralTexture (fbm noise) on one big plane; alpha = noise, so `cutoff` decides
+  // coverage (higher = fewer clouds). texSize low + NEAREST sampling = blocky voxel-style clouds.
+  // Scene fog (start/end in blocks, `fog` = horizon color) fades the plane's far edge into the sky.
+  clouds: {
+    height: 70,
+    size: 1600,
+    texSize: 128,
+    amplitude: 0.55,
+    octaves: 4,
+    cutoff: 0.55,
+    opacity: 0.85,
+    drift: 1.5, // blocks per second along +x
+    fog: '#c4d8ee',
+    fogStart: 200,
+    fogEnd: 700,
   },
   // chunk: forest-edge plains. height = baseHeight + amplitude * (fbm + 1) / 2, fbm in [-1, 1]
   chunk: {
@@ -213,6 +235,37 @@ skyMat.sunPosition = sunDir.scale(100)
 const skybox = CreateBox('sky', { size: PARAMS.sky.size }, scene)
 skybox.material = skyMat
 skybox.infiniteDistance = true
+skyMat.fogEnabled = false // fog is only for the cloud plane's far edge
+
+// --- Clouds (bab-only): procedural texture rendered once, alpha-tested + slightly transparent, unlit, no shadows.
+//     The plane follows the camera in x/z; the texture offset drifts so clouds move (texture wraps). ---
+const CL = PARAMS.clouds
+const cloudTex = new CloudProceduralTexture('cloudTex', CL.texSize, scene)
+cloudTex.skyColor = new Color4(1, 1, 1, 0) // alpha 0 = clear sky, alpha 1 = cloud
+cloudTex.cloudColor = new Color4(1, 1, 1, 1)
+cloudTex.amplitude = CL.amplitude
+cloudTex.numOctaves = CL.octaves
+cloudTex.refreshRate = 0 // static noise: render once
+cloudTex.updateSamplingMode(Texture.NEAREST_NEAREST)
+cloudTex.hasAlpha = true
+const cloudMat = new StandardMaterial('cloudMat', scene)
+cloudMat.diffuseTexture = cloudTex
+cloudMat.useAlphaFromDiffuseTexture = true
+cloudMat.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND
+cloudMat.alphaCutOff = CL.cutoff
+cloudMat.alpha = CL.opacity
+cloudMat.disableLighting = true
+cloudMat.emissiveColor = Color3.White()
+cloudMat.backFaceCulling = false // visible from above too (fly mode)
+const clouds = CreatePlane('clouds', { size: CL.size }, scene)
+clouds.rotation.x = Math.PI / 2 // lay flat
+clouds.position.y = CL.height
+clouds.material = cloudMat
+clouds.isPickable = false
+scene.fogMode = Scene.FOGMODE_LINEAR
+scene.fogColor = lin(CL.fog)
+scene.fogStart = CL.fogStart
+scene.fogEnd = CL.fogEnd
 
 // --- Lights ---
 // HemisphericLight ↔ three HemisphereLight
@@ -477,6 +530,44 @@ const g = atlas.getContext('2d')!
     ),
 )
 
+// --- Hotbar UI (bab-only): bottom-center slots, one per BLOCK_TYPES entry, icon = its side tile from the atlas.
+//     paintHotbar() re-marks the selected slot; showHud() calls it on every change. ---
+const HOTBAR_ICON: Record<BlockType, (typeof TILES)[number]> = {
+  grass: 'grassSide',
+  dirt: 'dirt',
+  stone: 'stone',
+  log: 'logSide',
+  leaves: 'leaves',
+}
+const hotbar = document.createElement('div')
+hotbar.style.cssText =
+  'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:#0008;border-radius:6px;pointer-events:none'
+const slots = BLOCK_TYPES.map((t, i) => {
+  const slot = document.createElement('div')
+  slot.style.cssText =
+    'position:relative;width:44px;height:44px;border:3px solid #0000;border-radius:4px'
+  const icon = document.createElement('canvas')
+  icon.width = icon.height = N
+  icon
+    .getContext('2d')!
+    .drawImage(atlas, TILES.indexOf(HOTBAR_ICON[t]) * N, 0, N, N, 0, 0, N, N)
+  icon.style.cssText =
+    'width:100%;height:100%;image-rendering:pixelated;display:block'
+  const num = document.createElement('span')
+  num.textContent = `${i + 1}`
+  num.style.cssText =
+    'position:absolute;left:2px;top:0;color:#fff;font:700 11px system-ui,sans-serif;text-shadow:0 0 2px #000'
+  slot.append(icon, num)
+  hotbar.append(slot)
+  return slot
+})
+document.body.append(hotbar)
+const paintHotbar = () =>
+  slots.forEach(
+    (s, i) =>
+      (s.style.borderColor = BLOCK_TYPES[i] === selected ? '#fff' : '#0000'),
+  )
+
 // --- Material: one PBRMaterial with the atlas (↔ three MeshStandardMaterial).
 //     DynamicTexture from a canvas; NEAREST_NEAREST = crisp pixels, no mipmaps (no atlas bleeding). ---
 const atlasTex = new DynamicTexture(
@@ -682,8 +773,10 @@ const setMode = (m: typeof mode) => {
   climbDir = null
   showHud()
 }
-const showHud = () =>
+const showHud = () => (
+  paintHotbar(),
   (hud.textContent = `${mode} · place ${selected} (1-5) · speed ×${boost.toFixed(2)} (+/-) · turn ×${look.toFixed(2)} ([ ]) · LMB break · RMB place · arrows turn · F walk/fly · R reset · wheel zoom · WASD Space · Shift ${mode === 'fly' ? 'down' : 'sprint'}`)
+)
 setMode(mode)
 // R = reset pose on the forest floor, in walk mode (↔ three position.set + lookAt)
 const resetPose = () => {
@@ -722,6 +815,32 @@ const aimed = () => {
     normal,
   )
   return hit && cell ? { cell: cell as number[], normal } : null
+}
+// Aim feedback: center crosshair (DOM) + black outline around the block a click would break (12 cube edges).
+const crosshair = document.createElement('div')
+crosshair.textContent = '+'
+crosshair.style.cssText =
+  'position:fixed;left:50%;top:50%;transform:translate(-50%,-52%);color:#fff;font:300 28px system-ui,sans-serif;text-shadow:0 0 2px #000;pointer-events:none'
+document.body.append(crosshair)
+const h = 0.502 // slightly bigger than a block so the lines don't z-fight its faces
+const corner = (i: number) =>
+  new Vector3(i & 1 ? h : -h, i & 2 ? h : -h, i & 4 ? h : -h)
+// edges = corner pairs differing in exactly one bit
+const EDGES = [0, 1, 2, 3, 4, 5, 6, 7].flatMap((i) =>
+  [1, 2, 4].filter((b) => !(i & b)).map((b) => [corner(i), corner(i | b)]),
+)
+const outline = CreateLineSystem('outline', { lines: EDGES }, scene)
+outline.color = Color3.Black()
+outline.isPickable = false
+outline.isVisible = false
+const showAim = (on: boolean) => {
+  const a = on ? aimed() : null
+  outline.isVisible = !!a
+  crosshair.style.display = on ? '' : 'none'
+  if (a) {
+    const [x, y, z] = a.cell
+    outline.position.set(x - K.size / 2 + 0.5, y + 0.5, z - K.size / 2 + 0.5)
+  }
 }
 const edits: Record<number, number> = {} // grid index → block id, saved so edits survive a refresh
 const placeAt = (x: number, y: number, z: number, t: BlockType | null) => {
@@ -820,6 +939,13 @@ engine.runRenderLoop(() => {
   )
   const bg = locked ? '#0008' : '#b00c'
   if (hud.style.background !== bg) hud.style.background = bg
+  // Clouds: plane centered under the camera, texture slides by drift (u wraps every `size` blocks).
+  clouds.position.x = c.x
+  clouds.position.z = c.z
+  cloudTex.uOffset =
+    (((performance.now() / 1000) * CL.drift - c.x) / CL.size) % 1
+  cloudTex.vOffset = (c.z / CL.size) % 1
+  showAim(locked)
   if (!locked) {
     hud.textContent = 'Click the view to capture the mouse (Esc releases it)'
     scene.render()
