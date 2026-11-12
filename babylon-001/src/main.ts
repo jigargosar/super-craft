@@ -78,6 +78,16 @@ const PARAMS = {
     distance: 60, // light placed at sunDir * distance
     shadowFar: 140, // shadow camera far plane (↔ three shadow.camera.far)
   },
+  // day (bab-only): day/night cycle. time = fraction of a day (0.25 sunrise, 0.5 noon, 0.75 sunset);
+  // start matches sun.polarDeg 50 (40° up, morning). Hold T to fast-forward ×fastForward. Sun crosses the sky
+  // on the sun.azimuthDeg vertical plane; light fades over the `twilight` elevation band (sin of elevation).
+  day: {
+    length: 600,
+    start: 0.361,
+    fastForward: 40,
+    twilight: 0.25,
+    night: 0.12,
+  },
   hemi: { sky: '#bfd8ff', ground: '#6b5a3a', intensity: 0.8 },
   ambient: { color: '#ffffff', intensity: 0.2 },
   // luminance: babylon-only (its sky has built-in tone mapping; 0.6 matches three's ACES look)
@@ -291,6 +301,35 @@ hemi.groundColor = lin(PARAMS.hemi.ground)
 hemi.intensity = PARAMS.hemi.intensity
 // scene.ambientColor ↔ three AmbientLight (materials opt in via ambientColor = white)
 scene.ambientColor = lin(PARAMS.ambient.color).scale(PARAMS.ambient.intensity)
+
+// --- Day/night (bab-only): each frame move the sun along its arc and dim lights, clouds and fog with it. ---
+const D = PARAMS.day
+let dayTime = D.start // saved
+const sunUp = new Vector3(0, 1, 0)
+const sunAcross = new Vector3(Math.sin(theta), 0, Math.cos(theta)) // horizontal direction at azimuthDeg
+const updateSun = (dt: number) => {
+  const ff = keys.has('KeyT') ? D.fastForward : 1
+  dayTime = (dayTime + (dt * ff) / D.length) % 1
+  const a = 2 * Math.PI * (dayTime - 0.25) // 0 = sunrise, π/2 = noon
+  sunAcross.scaleToRef(Math.cos(a), sunDir).addInPlace(sunUp.scale(Math.sin(a)))
+  sun.direction = sunDir.negate()
+  sun.position = sunDir.scale(S.distance)
+  skyMat.sunPosition = sunDir.scale(100)
+  const day = Math.min(1, Math.max(0, sunDir.y / D.twilight)) // 0 night … 1 day
+  const dim = D.night + (1 - D.night) * day
+  sun.intensity = S.intensity * day
+  hemi.intensity = PARAMS.hemi.intensity * dim
+  scene.ambientColor = lin(PARAMS.ambient.color).scale(
+    PARAMS.ambient.intensity * dim,
+  )
+  cloudMat.emissiveColor.set(dim, dim, dim)
+  scene.fogColor = lin(CL.fog).scale(dim)
+}
+// HUD clock: dayTime → "hh:mm" (0.5 = 12:00)
+const clock = () => {
+  const m = Math.floor(dayTime * 24 * 60)
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
 // DirectionalLight + ShadowGenerator ↔ three DirectionalLight with castShadow. Babylon direction = light travel.
 const S = PARAMS.sun
 const sun = new DirectionalLight('sun', sunDir.negate(), scene)
@@ -987,7 +1026,7 @@ engine.runRenderLoop(() => {
   const c = camera.position
   setText(
     pos,
-    `${BUILD} · seed ${seed} · ${engine.getFps().toFixed(0)} fps  x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`,
+    `${BUILD} · seed ${seed} · ${clock()} (T fast) · ${engine.getFps().toFixed(0)} fps  x ${c.x.toFixed(1)}  y ${(c.y - C.eyeHeight).toFixed(1)} (feet)  z ${c.z.toFixed(1)}${onGround ? '  ground' : ''}${climbDir ? '  climbing' : ''}`,
   )
   const bg = locked ? '#0008' : '#b00c'
   if (hud.style.background !== bg) hud.style.background = bg
@@ -997,6 +1036,7 @@ engine.runRenderLoop(() => {
   cloudTex.uOffset =
     (((performance.now() / 1000) * CL.drift - c.x) / CL.size) % 1
   cloudTex.vOffset = (c.z / CL.size) % 1
+  updateSun(dt)
   showAim(locked)
   if (!locked) {
     hud.textContent = 'Click the view to capture the mouse (Esc releases it)'
@@ -1080,6 +1120,7 @@ function save() {
         boost,
         look,
         selected,
+        dayTime,
       }),
     )
   } catch {}
@@ -1094,6 +1135,7 @@ try {
     ;[camera.rotation.x, camera.rotation.y] = d.rot
     ;[boost, look] = [d.boost, d.look]
     if (BLOCK_TYPES.includes(d.selected)) selected = d.selected
+    if (typeof d.dayTime === 'number') dayTime = d.dayTime
     setMode(d.mode)
   }
 } catch {}
